@@ -1,39 +1,42 @@
 'use client'
+
 import { Post, PostStatus, Platform } from '@/lib/types/posts'
-import { JSX, useState } from 'react'
+import { JSX, useState, useEffect } from 'react'
 import { sendToWebhook } from '@/app/actions/webhooks'
 import {
     Loader2,
     Check,
-    X,
     Eye,
     Image as ImageIcon,
     Send,
     Instagram,
     Facebook,
-    Twitter,
-    Linkedin
+    ExternalLink,
+    MoreHorizontal,
 } from 'lucide-react'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import Image from 'next/image'
 
 interface PostsTableProps {
-    initialPosts: Post[]
+    posts: Post[]
 }
 
 const platformIcons: Record<Platform, JSX.Element> = {
     instagram: <Instagram className="w-4 h-4" />,
     facebook: <Facebook className="w-4 h-4" />,
-
 }
 
-const platformColors: Record<Platform, string> = {
-    instagram: 'bg-gradient-to-r from-purple-500 to-pink-500',
-    facebook: 'bg-blue-600',
-}
-
-export default function PostsTable({ initialPosts }: PostsTableProps) {
-    const [posts, setPosts] = useState<Post[]>(initialPosts)
+export default function PostsTable({ posts }: PostsTableProps) {
     const [loadingId, setLoadingId] = useState<string | null>(null)
     const [selectedPlatforms, setSelectedPlatforms] = useState<Record<string, Platform[]>>({})
+
+    useEffect(() => {
+        setSelectedPlatforms({})
+    }, [posts])
 
     const togglePlatform = (postId: string, platform: Platform) => {
         setSelectedPlatforms(prev => {
@@ -41,7 +44,6 @@ export default function PostsTable({ initialPosts }: PostsTableProps) {
             const updated = current.includes(platform)
                 ? current.filter(p => p !== platform)
                 : [...current, platform]
-
             return { ...prev, [postId]: updated }
         })
     }
@@ -54,11 +56,6 @@ export default function PostsTable({ initialPosts }: PostsTableProps) {
         setLoadingId(postId)
         try {
             await sendToWebhook({ postId, action, platforms })
-
-            // Only remove from UI if it's generate_image (pending → approved will be updated by n8n)
-            if (action === 'generate_image') {
-                setPosts(posts.filter(post => post.id !== postId))
-            }
         } catch (error) {
             console.error(`Error sending ${action} webhook:`, error)
         } finally {
@@ -66,18 +63,18 @@ export default function PostsTable({ initialPosts }: PostsTableProps) {
         }
     }
 
-    const getStatusColor = (status: PostStatus) => {
+    const getStatusVariant = (status: PostStatus) => {
         switch (status) {
-            case 'pending': return 'bg-yellow-100 text-yellow-800'
-            case 'approved': return 'bg-blue-100 text-blue-800'
-            case 'rejected': return 'bg-red-100 text-red-800'
-            case 'published': return 'bg-green-100 text-green-800'
-            default: return 'bg-gray-100 text-gray-800'
+            case 'pending': return 'default'
+            case 'approved': return 'secondary'
+            case 'rejected': return 'destructive'
+            case 'published': return 'outline'
+            default: return 'default'
         }
     }
 
     const formatDate = (dateString: string | null) => {
-        if (!dateString) return 'N/A'
+        if (!dateString) return 'Not set'
         return new Date(dateString).toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
@@ -91,165 +88,208 @@ export default function PostsTable({ initialPosts }: PostsTableProps) {
 
         return (
             <div className="flex flex-col gap-2">
-                <p className="text-sm font-medium text-foreground mb-1">Select Platforms:</p>
+                <p className="text-sm font-medium text-foreground">Select Platforms</p>
                 <div className="flex flex-wrap gap-2">
                     {platforms.map(platform => (
-                        <button
+                        <Button
                             key={platform}
                             onClick={() => togglePlatform(postId, platform)}
-                            className={`flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium transition-colors ${currentPlatforms.includes(platform)
-                                ? `${platformColors[platform]} text-white`
-                                : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                                }`}
+                            variant={currentPlatforms.includes(platform) ? "default" : "outline"}
+                            size="sm"
+                            className="gap-1"
                         >
                             {platformIcons[platform]}
                             {platform.charAt(0).toUpperCase() + platform.slice(1)}
-                        </button>
+                        </Button>
                     ))}
                 </div>
             </div>
         )
     }
 
+    if (posts.length === 0) {
+        return (
+            <Card>
+                <CardContent className="py-12">
+                    <div className="text-center">
+                        <p className="text-muted-foreground">No posts found with the current filters.</p>
+                    </div>
+                </CardContent>
+            </Card>
+        )
+    }
+
     return (
-        <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="min-w-full divide-y divide-border">
-                <thead className="bg-muted">
-                    <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                            Post
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                            Status
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                            Date
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                            Actions
-                        </th>
-                    </tr>
-                </thead>
-                <tbody className="bg-card divide-y divide-border">
-                    {posts.map((post) => (
-                        <tr key={post.id} className="hover:bg-accent/50 transition-colors">
-                            <td className="px-6 py-4">
-                                <div className="flex items-start gap-3">
-                                    {post.image_url && (
-                                        <div className="relative">
-                                            <img
-                                                src={post.image_url}
-                                                alt={post.title}
-                                                className="w-12 h-12 rounded object-cover"
-                                            />
-                                            {post.status === 'approved' && (
-                                                <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-card"></div>
+        <div className="rounded-md border">
+            <div className="overflow-x-auto">
+                <Table className="w-full table-fixed">
+                    <TableHeader>
+                        <TableRow>
+                            {/* Using percentage-based widths */}
+                            <TableHead className="w-2/5 sm:w-1/2">Post</TableHead>
+                            <TableHead className="w-1/6">Status</TableHead>
+                            <TableHead className="w-1/6">Publish Date</TableHead>
+                            <TableHead className="w-1/4">Actions</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {posts.map((post) => (
+                            <TableRow key={post.id} className="hover:bg-muted/50">
+                                <TableCell className="w-2/5 sm:w-1/2 overflow-hidden">
+                                    <div className="flex items-start gap-2 sm:gap-3">
+                                        {/* Image */}
+                                        <div className="shrink-0">
+                                            {post.image_url ? (
+                                                <div className="relative">
+                                                    <Image
+                                                        src={post.image_url}
+                                                        alt={post.title}
+                                                        width={40}
+                                                        height={40}
+                                                        className="rounded-lg object-cover border w-10 h-10"
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+                                                    <ImageIcon className="w-4 h-4" />
+                                                </div>
                                             )}
                                         </div>
-                                    )}
-                                    <div className="flex-1">
-                                        <h4 className="font-medium text-foreground line-clamp-1">
-                                            {post.title}
-                                        </h4>
-                                        <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
-                                            {post.content}
-                                        </p>
-                                        {post.hashtags && post.hashtags.length > 0 && (
-                                            <div className="flex flex-wrap gap-1 mt-2">
-                                                {post.hashtags.slice(0, 3).map((tag, index) => (
-                                                    <span
-                                                        key={index}
-                                                        className="px-2 py-1 text-xs bg-primary/10 text-primary rounded-full"
-                                                    >
-                                                        #{tag}
-                                                    </span>
-                                                ))}
-                                                {post.hashtags.length > 3 && (
-                                                    <span className="px-2 py-1 text-xs bg-muted text-muted-foreground rounded-full">
-                                                        +{post.hashtags.length - 3}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        )}
+
+                                        {/* Content - MUST have overflow-hidden */}
+                                        <div className="flex-1 min-w-0 overflow-hidden">
+                                            <h4 className="font-medium text-foreground truncate text-sm sm:text-base">
+                                                {post.title}
+                                            </h4>
+                                            <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 mt-1">
+                                                {post.content}
+                                            </p>
+                                            {post.hashtags && post.hashtags.length > 0 && (
+                                                <div className="flex flex-wrap gap-1 mt-2 overflow-hidden">
+                                                    {post.hashtags.slice(0, 2).map((tag, index) => (
+                                                        <Badge key={index} variant="outline" className="text-xs truncate">
+                                                            #{tag}
+                                                        </Badge>
+                                                    ))}
+                                                    {post.hashtags.length > 2 && (
+                                                        <Badge variant="secondary" className="text-xs">
+                                                            +{post.hashtags.length - 2}
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            </td>
-                            <td className="px-6 py-4">
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(post.status)}`}>
-                                    {post.status}
-                                </span>
-                            </td>
-                            <td className="px-6 py-4 text-sm text-muted-foreground">
-                                {formatDate(post.pub_date)}
-                            </td>
-                            <td className="px-6 py-4">
-                                <div className="space-y-3">
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={() => window.open(post.link || '#', '_blank')}
-                                            disabled={!post.link}
-                                            className="p-2 text-muted-foreground hover:text-foreground disabled:opacity-50"
-                                            title="View original"
-                                        >
-                                            <Eye className="w-4 h-4" />
-                                        </button>
+                                </TableCell>
 
-                                        {post.status === 'pending' && (
-                                            <button
-                                                onClick={() => handleWebhookAction(post.id, 'generate_image')}
-                                                disabled={loadingId === post.id}
-                                                className="p-2 text-blue-600 hover:text-blue-700 disabled:opacity-50"
-                                                title="Generate Image"
+                                <TableCell className="w-1/6 overflow-hidden">
+                                    <Badge variant={getStatusVariant(post.status)} className="truncate w-full">
+                                        {post.status.charAt(0).toUpperCase() + post.status.slice(1)}
+                                    </Badge>
+                                </TableCell>
+
+                                <TableCell className="w-1/6 overflow-hidden">
+                                    <div className="text-sm text-muted-foreground truncate">
+                                        {formatDate(post.pub_date)}
+                                    </div>
+                                </TableCell>
+
+                                <TableCell className="w-1/4 overflow-hidden">
+                                    <div className="space-y-2">
+                                        {/* Action buttons row */}
+                                        <div className="flex items-center gap-1">
+                                            <Button
+                                                onClick={() => window.open(post.link || '#', '_blank')}
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 shrink-0"
                                             >
-                                                {loadingId === post.id ? (
-                                                    <Loader2 className="w-4 h-4 animate-spin" />
-                                                ) : (
-                                                    <ImageIcon className="w-4 h-4" />
-                                                )}
-                                            </button>
-                                        )}
+                                                <Eye className="w-3.5 h-3.5" />
+                                            </Button>
 
+                                            {post.status === 'pending' && (
+                                                <Button
+                                                    onClick={() => handleWebhookAction(post.id, 'generate_image')}
+                                                    disabled={loadingId === post.id}
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-8 flex-1 min-w-0"
+                                                >
+                                                    {loadingId === post.id ? (
+                                                        <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />
+                                                    ) : (
+                                                        <ImageIcon className="w-3.5 h-3.5 mr-1" />
+                                                    )}
+                                                    <span className="truncate">Generate</span>
+                                                </Button>
+                                            )}
+
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                                                        <MoreHorizontal className="w-3.5 h-3.5" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    <DropdownMenuItem>
+                                                        <ExternalLink className="w-4 h-4 mr-2" />
+                                                        View Details
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </div>
+
+                                        {/* Platform selector (for approved posts) */}
                                         {post.status === 'approved' && (
-                                            <>
-                                                {renderPlatformSelector(post.id)}
-                                                <button
+                                            <div className="space-y-2">
+                                                <div className="flex gap-1">
+                                                    <Button
+                                                        onClick={() => togglePlatform(post.id, 'instagram')}
+                                                        variant={selectedPlatforms[post.id]?.includes('instagram') ? "default" : "outline"}
+                                                        size="sm"
+                                                        className="h-7 flex-1 text-xs"
+                                                    >
+                                                        <Instagram className="w-3 h-3 mr-1" />
+                                                        <span className="truncate">Insta</span>
+                                                    </Button>
+                                                    <Button
+                                                        onClick={() => togglePlatform(post.id, 'facebook')}
+                                                        variant={selectedPlatforms[post.id]?.includes('facebook') ? "default" : "outline"}
+                                                        size="sm"
+                                                        className="h-7 flex-1 text-xs"
+                                                    >
+                                                        <Facebook className="w-3 h-3 mr-1" />
+                                                        <span className="truncate">FB</span>
+                                                    </Button>
+                                                </div>
+
+                                                <Button
                                                     onClick={() => handleWebhookAction(
                                                         post.id,
                                                         'publish',
                                                         selectedPlatforms[post.id] || []
                                                     )}
                                                     disabled={loadingId === post.id || !selectedPlatforms[post.id]?.length}
-                                                    className="p-2 text-green-600 hover:text-green-700 disabled:opacity-50"
-                                                    title="Publish to selected platforms"
+                                                    variant="default"
+                                                    size="sm"
+                                                    className="h-7 w-full text-xs"
                                                 >
                                                     {loadingId === post.id ? (
-                                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                                        <Loader2 className="w-3 h-3 animate-spin mr-1" />
                                                     ) : (
-                                                        <Send className="w-4 h-4" />
+                                                        <Send className="w-3 h-3 mr-1" />
                                                     )}
-                                                </button>
-                                            </>
+                                                    <span className="truncate">Publish</span>
+                                                </Button>
+                                            </div>
                                         )}
                                     </div>
-
-                                    {post.status === 'approved' && post.image_url && (
-                                        <div className="text-xs text-green-600 flex items-center gap-1">
-                                            <Check className="w-3 h-3" />
-                                            Image generated ✓
-                                        </div>
-                                    )}
-                                </div>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-
-            {posts.length === 0 && (
-                <div className="text-center py-12">
-                    <p className="text-muted-foreground">No posts found</p>
-                </div>
-            )}
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </div>
         </div>
     )
 }

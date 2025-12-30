@@ -4,6 +4,8 @@ import FilterBar from '@/components/posts/filter-bar'
 import Pagination from '@/components/posts/pagination'
 import { Suspense } from 'react'
 import { FilterStatus } from '@/lib/types/posts'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+
 
 interface DashboardPageProps {
     searchParams: Promise<{
@@ -37,52 +39,43 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     return (
         <div className="space-y-6">
             <div>
-                <h1 className="text-2xl font-bold text-foreground">Content Moderation Dashboard</h1>
-                <p className="text-muted-foreground mt-1">
+                <h1 className="text-3xl font-bold text-foreground">Content Moderation Dashboard</h1>
+                <p className="text-muted-foreground mt-2">
                     Manage posts with AI image generation and multi-platform publishing
                 </p>
             </div>
 
-            {/* REMOVE onFilterChange prop - FilterBar handles its own state */}
+            {/* FilterBar needs Suspense because it uses useSearchParams() */}
             <Suspense fallback={
-                <div className="animate-pulse h-10 bg-muted rounded-md"></div>
+                <div className="animate-pulse h-12 bg-muted rounded-lg"></div>
             }>
                 <FilterBar initialFilters={{ ...filters, status }} />
             </Suspense>
 
-            <div className="bg-card rounded-lg border border-border p-4">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-lg font-semibold text-foreground">
-                        Posts ({meta.total})
-                    </h2>
-                    <div className="text-sm text-muted-foreground">
-                        Page {meta.page} of {meta.totalPages}
+            <Card>
+                <CardHeader>
+                    <div className="flex justify-between items-center">
+                        <div>
+                            <CardTitle>Posts</CardTitle>
+                            <CardDescription>
+                                Total {meta.total} posts • Page {meta.page} of {meta.totalPages}
+                            </CardDescription>
+                        </div>
+                        <div className="text-sm font-medium text-muted-foreground">
+                            Showing {posts.length} posts
+                        </div>
                     </div>
-                </div>
+                </CardHeader>
+                <CardContent>
+                    <PostsTable posts={posts} />
 
-                <Suspense fallback={
-                    <div className="flex justify-center py-12">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                    </div>
-                }>
-                    <PostsTable initialPosts={posts} />
-                </Suspense>
-
-                {meta.totalPages > 1 && (
-                    <div className="mt-6">
-                        <Pagination meta={meta} />
-                    </div>
-                )}
-            </div>
-
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h3 className="font-semibold text-blue-800 mb-2">Workflow Information:</h3>
-                <ol className="list-decimal list-inside space-y-1 text-sm text-blue-700">
-                    <li><strong>Pending:</strong> Click &quot;Generate Image&quot;  to send to AI image generator</li>
-                    <li><strong>Approved:</strong> Select platforms and click &quot;Publish&quot; to post</li>
-                    <li><strong>Published:</strong> Post has been sent to selected platforms</li>
-                </ol>
-            </div>
+                    {meta.totalPages > 1 && (
+                        <div className="mt-8">
+                            <Pagination meta={meta} />
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
         </div>
     )
 }

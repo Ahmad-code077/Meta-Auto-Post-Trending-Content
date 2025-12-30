@@ -4,6 +4,7 @@ import { Post, PostsResponse, Filters, PostStatus } from '@/lib/types/posts'
 export async function getPosts(filters: Filters = {}): Promise<PostsResponse> {
     const supabase = await createClient()
 
+    console.log('trigger on filter change ? ')
     let query = supabase
         .from('posts')
         .select('*', { count: 'exact' })
