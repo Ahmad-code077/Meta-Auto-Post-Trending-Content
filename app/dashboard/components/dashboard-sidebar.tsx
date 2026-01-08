@@ -38,8 +38,8 @@ export default function DashboardSidebar() {
                                     key={item.name}
                                     href={item.href}
                                     className={`flex items-center px-4 py-2.5 text-sm rounded-lg transition-colors ${isActive
-                                            ? 'bg-primary text-primary-foreground'
-                                            : 'hover:bg-accent hover:text-accent-foreground'
+                                        ? 'bg-primary text-primary-foreground'
+                                        : 'hover:bg-accent hover:text-accent-foreground'
                                         }`}
                                 >
                                     <Icon className="w-5 h-5 mr-3" />
@@ -79,8 +79,8 @@ export default function DashboardSidebar() {
                                             key={item.name}
                                             href={item.href}
                                             className={`flex items-center px-4 py-2.5 text-sm rounded-lg transition-colors ${isActive
-                                                    ? 'bg-primary text-primary-foreground'
-                                                    : 'hover:bg-accent hover:text-accent-foreground'
+                                                ? 'bg-primary text-primary-foreground'
+                                                : 'hover:bg-accent hover:text-accent-foreground'
                                                 }`}
                                             onClick={() => setSidebarOpen(false)}
                                         >
