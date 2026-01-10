@@ -3,8 +3,12 @@ import { Post, PostsResponse, Filters, PostStatus } from '@/lib/types/posts'
 
 export async function getPosts(filters: Filters = {}): Promise<PostsResponse> {
     const supabase = await createClient()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    console.log('trigger on filter change ? ')
+    if (authError || !user) {
+        console.error('Authentication error:', authError)
+        throw new Error('Unauthorized: Please log in to view posts')
+    }
     let query = supabase
         .from('posts')
         .select('*', { count: 'exact' })
@@ -25,6 +29,7 @@ export async function getPosts(filters: Filters = {}): Promise<PostsResponse> {
     if (filters.dateTo) {
         query = query.lte('created_at', filters.dateTo)
     }
+    query = query.eq('user_id', user.id)
 
     // Pagination
     const page = filters.page || 1
