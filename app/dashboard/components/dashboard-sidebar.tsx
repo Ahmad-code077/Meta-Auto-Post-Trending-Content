@@ -18,9 +18,10 @@ export default function DashboardSidebar() {
     const navigation = [
         { name: 'Dashboard', href: '/dashboard', icon: Home },
         { name: 'Posts', href: '/dashboard/posts', icon: FileText },
-        { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
-        { name: 'Users', href: '/dashboard/users', icon: Users },
-        { name: 'Settings', href: '/dashboard/settings', icon: Settings },
+        { name: 'Job Posts', href: '/dashboard/job-posts', icon: FileText },
+        // { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
+        // { name: 'Users', href: '/dashboard/users', icon: Users },
+        // { name: 'Settings', href: '/dashboard/settings', icon: Settings },
     ]
 
     return (
