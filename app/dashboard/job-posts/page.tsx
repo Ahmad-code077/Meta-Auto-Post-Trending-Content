@@ -196,17 +196,17 @@ export default function JobPostsPage() {
     };
 
     return (
-        <div className="container mx-auto py-6 space-y-6">
+        <div className="w-full p-3 sm:p-6 space-y-4 sm:space-y-6">
             <Card>
-                <CardHeader>
-                    <div className="flex items-center gap-2">
-                        <Briefcase className="h-6 w-6" />
-                        <div>
-                            <CardTitle>Job Posts Management</CardTitle>
-                            <CardDescription>
+                <CardHeader className="p-4 sm:p-6">
+                    <div className="flex items-start sm:items-center gap-3">
+                        <Briefcase className="h-5 w-5 sm:h-6 sm:w-6 shrink-0 mt-0.5 sm:mt-0" />
+                        <div className="min-w-0 flex-1">
+                            <CardTitle className="text-lg sm:text-xl">Job Posts Management</CardTitle>
+                            <CardDescription className="text-xs sm:text-sm">
                                 Manage and track your job applications
                                 {!isInitialLoad && totalCount > 0 && (
-                                    <span className="ml-2">
+                                    <span className="block sm:inline sm:ml-2 mt-1 sm:mt-0">
                                         • {totalCount} {totalCount === 1 ? 'job' : 'jobs'} found
                                     </span>
                                 )}
@@ -214,7 +214,7 @@ export default function JobPostsPage() {
                         </div>
                     </div>
                 </CardHeader>
-                <CardContent className="space-y-6">
+                <CardContent className="p-3 sm:p-6 space-y-4 sm:space-y-6">
                     {/* Filters */}
                     <JobFilterBar
                         filters={filters}
@@ -233,8 +233,8 @@ export default function JobPostsPage() {
 
                     {/* Pagination */}
                     {!isLoading && jobs.length > 0 && (
-                        <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
+                            <p className="text-xs sm:text-sm text-muted-foreground">
                                 Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalCount)} of {totalCount} jobs
                             </p>
                             {renderPagination()}

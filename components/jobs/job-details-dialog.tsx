@@ -181,7 +181,7 @@ export function JobDetailsDialog({ job, isOpen, onClose, onSendEmail }: JobDetai
                     )}
 
                     {/* Email Status */}
-                    {(job.sent_at || job.follow_up_date || job.email_draft_link) && (
+                    {(job.sent_at || job.follow_up_date || job.gmail_draft_id || job.gmail_message_id || job.thread_id) && (
                         <div className="border rounded-lg p-4 bg-muted/30">
                             <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                                 <Mail className="h-5 w-5" />
@@ -210,7 +210,7 @@ export function JobDetailsDialog({ job, isOpen, onClose, onSendEmail }: JobDetai
                                         <p className="text-base font-medium">{job.follow_up_count}</p>
                                     </div>
                                 )}
-                                {job.email_draft_link && (
+                                {job.gmail_draft_id && (
                                     <div>
                                         <p className="text-sm text-muted-foreground mb-2">Email Draft</p>
                                         <Button
@@ -219,12 +219,50 @@ export function JobDetailsDialog({ job, isOpen, onClose, onSendEmail }: JobDetai
                                             asChild
                                         >
                                             <a
-                                                href={`https://mail.google.com/mail/u/0/#drafts?compose=${job.email_draft_link}`}
+                                                href={`https://mail.google.com/mail/u/0/#drafts/${job.gmail_draft_id}`}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                             >
                                                 <ExternalLink className="mr-2 h-4 w-4" />
                                                 View Draft
+                                            </a>
+                                        </Button>
+                                    </div>
+                                )}
+                                {job.gmail_message_id && (
+                                    <div>
+                                        <p className="text-sm text-muted-foreground mb-2">Sent Email</p>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            asChild
+                                        >
+                                            <a
+                                                href={`https://mail.google.com/mail/u/0/#all/${job.gmail_message_id}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                            >
+                                                <ExternalLink className="mr-2 h-4 w-4" />
+                                                View Email
+                                            </a>
+                                        </Button>
+                                    </div>
+                                )}
+                                {job.thread_id && (
+                                    <div>
+                                        <p className="text-sm text-muted-foreground mb-2">Email Thread</p>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            asChild
+                                        >
+                                            <a
+                                                href={`https://mail.google.com/mail/u/0/#inbox/${job.thread_id}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                            >
+                                                <ExternalLink className="mr-2 h-4 w-4" />
+                                                View Thread
                                             </a>
                                         </Button>
                                     </div>
@@ -235,7 +273,7 @@ export function JobDetailsDialog({ job, isOpen, onClose, onSendEmail }: JobDetai
 
                     {/* Action Buttons */}
                     <div className="flex items-center justify-end gap-3 pt-4 border-t">
-                        {job.status === 'draft_created' && job.email_draft_link && onSendEmail && (
+                        {job.status === 'draft_created' && job.gmail_draft_id && onSendEmail && (
                             <Button
                                 onClick={() => {
                                     onSendEmail(job.id);

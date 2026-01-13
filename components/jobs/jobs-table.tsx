@@ -15,6 +15,7 @@ import type { Job, JobStatus } from '@/lib/types/jobs';
 import { ExternalLink, Mail, Loader2, Eye } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { JobDetailsDialog } from './job-details-dialog';
+import { JobsTableMobile } from './jobs-table-mobile';
 
 interface JobsTableProps {
     jobs: Job[];
@@ -89,123 +90,135 @@ export function JobsTable({ jobs, isLoading, onSendEmail }: JobsTableProps) {
     }
 
     return (
-        <div className="rounded-md border">
-            <Table>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>Title</TableHead>
-                        <TableHead>Company</TableHead>
-                        <TableHead>Recruiter</TableHead>
-                        <TableHead>Location</TableHead>
-                        <TableHead>Experience</TableHead>
-                        <TableHead>Work Type</TableHead>
-                        <TableHead>Timings</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Created</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {jobs.map((job) => (
-                        <TableRow key={job.id}>
-                            <TableCell className="font-medium max-w-[200px]">
-                                <div className="truncate" title={job.title || 'N/A'}>
-                                    {job.title || <span className="text-muted-foreground">N/A</span>}
-                                </div>
-                            </TableCell>
-                            <TableCell>
-                                {job.company || <span className="text-muted-foreground">N/A</span>}
-                            </TableCell>
-                            <TableCell>
-                                <div className="space-y-1">
-                                    <div className="text-sm">
-                                        {job.recruiter_name || <span className="text-muted-foreground">N/A</span>}
+        <>
+            {/* Mobile view */}
+            <div className="block lg:hidden">
+                <JobsTableMobile
+                    jobs={jobs}
+                    isLoading={isLoading}
+                    onSendEmail={handleSendEmail}
+                />
+            </div>
+
+            {/* Desktop view */}
+            <div className="hidden lg:block rounded-md border">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Title</TableHead>
+                            <TableHead>Company</TableHead>
+                            <TableHead>Recruiter</TableHead>
+                            <TableHead>Location</TableHead>
+                            <TableHead>Experience</TableHead>
+                            <TableHead>Work Type</TableHead>
+                            <TableHead>Timings</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Created</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {jobs.map((job) => (
+                            <TableRow key={job.id}>
+                                <TableCell className="font-medium max-w-[200px]">
+                                    <div className="truncate" title={job.title || 'N/A'}>
+                                        {job.title || <span className="text-muted-foreground">N/A</span>}
                                     </div>
-                                    {job.recruiter_email && (
-                                        <div className="text-xs text-muted-foreground">
-                                            {job.recruiter_email}
+                                </TableCell>
+                                <TableCell>
+                                    {job.company || <span className="text-muted-foreground">N/A</span>}
+                                </TableCell>
+                                <TableCell>
+                                    <div className="space-y-1">
+                                        <div className="text-sm">
+                                            {job.recruiter_name || <span className="text-muted-foreground">N/A</span>}
                                         </div>
+                                        {job.recruiter_email && (
+                                            <div className="text-xs text-muted-foreground">
+                                                {job.recruiter_email}
+                                            </div>
+                                        )}
+                                    </div>
+                                </TableCell>
+                                <TableCell>
+                                    {job.location || <span className="text-muted-foreground">N/A</span>}
+                                </TableCell>
+                                <TableCell>
+                                    {job.experience || <span className="text-muted-foreground">N/A</span>}
+                                </TableCell>
+                                <TableCell>
+                                    {job.work_type ? (
+                                        <Badge variant="outline" className="capitalize">
+                                            {job.work_type}
+                                        </Badge>
+                                    ) : (
+                                        <span className="text-muted-foreground">N/A</span>
                                     )}
-                                </div>
-                            </TableCell>
-                            <TableCell>
-                                {job.location || <span className="text-muted-foreground">N/A</span>}
-                            </TableCell>
-                            <TableCell>
-                                {job.experience || <span className="text-muted-foreground">N/A</span>}
-                            </TableCell>
-                            <TableCell>
-                                {job.work_type ? (
-                                    <Badge variant="outline" className="capitalize">
-                                        {job.work_type}
+                                </TableCell>
+                                <TableCell>
+                                    {job.timings || <span className="text-muted-foreground">N/A</span>}
+                                </TableCell>
+                                <TableCell>
+                                    <Badge variant={STATUS_CONFIG[job.status].variant}>
+                                        {STATUS_CONFIG[job.status].label}
                                     </Badge>
-                                ) : (
-                                    <span className="text-muted-foreground">N/A</span>
-                                )}
-                            </TableCell>
-                            <TableCell>
-                                {job.timings || <span className="text-muted-foreground">N/A</span>}
-                            </TableCell>
-                            <TableCell>
-                                <Badge variant={STATUS_CONFIG[job.status].variant}>
-                                    {STATUS_CONFIG[job.status].label}
-                                </Badge>
-                            </TableCell>
-                            <TableCell className="text-sm text-muted-foreground">
-                                {formatDistanceToNow(new Date(job.created_at), { addSuffix: true })}
-                            </TableCell>
-                            <TableCell className="text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => handleViewDetails(job)}
-                                        title="View full details"
-                                    >
-                                        <Eye className="h-4 w-4" />
-                                    </Button>
-                                    {job.email_draft_link && (
+                                </TableCell>
+                                <TableCell className="text-sm text-muted-foreground">
+                                    {formatDistanceToNow(new Date(job.created_at), { addSuffix: true })}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                    <div className="flex items-center justify-end gap-2">
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            asChild
+                                            onClick={() => handleViewDetails(job)}
+                                            title="View full details"
                                         >
-                                            <a
-                                                href={`https://mail.google.com/mail/u/0/#drafts?compose=${job.email_draft_link}`}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                title="View email draft"
+                                            <Eye className="h-4 w-4" />
+                                        </Button>
+                                        {job.gmail_draft_id && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                asChild
                                             >
-                                                <ExternalLink className="h-4 w-4" />
-                                            </a>
-                                        </Button>
-                                    )}
-                                    {job.status === 'draft_created' && job.email_draft_link && (
-                                        <Button
-                                            variant="default"
-                                            size="sm"
-                                            onClick={() => handleSendEmail(job.id)}
-                                            disabled={sendingEmailId === job.id}
-                                        >
-                                            {sendingEmailId === job.id ? (
-                                                <>
-                                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                                    Sending...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Mail className="mr-2 h-4 w-4" />
-                                                    Send Email
-                                                </>
-                                            )}
-                                        </Button>
-                                    )}
-                                </div>
-                            </TableCell>
-                        </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
+                                                <a
+                                                    href={`https://mail.google.com/mail/u/0/#drafts/${job.gmail_draft_id}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    title="View email draft"
+                                                >
+                                                    <ExternalLink className="h-4 w-4" />
+                                                </a>
+                                            </Button>
+                                        )}
+                                        {job.status === 'draft_created' && job.gmail_draft_id && (
+                                            <Button
+                                                variant="default"
+                                                size="sm"
+                                                onClick={() => handleSendEmail(job.id)}
+                                                disabled={sendingEmailId === job.id}
+                                            >
+                                                {sendingEmailId === job.id ? (
+                                                    <>
+                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                        Sending...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Mail className="mr-2 h-4 w-4" />
+                                                        Send Email
+                                                    </>
+                                                )}
+                                            </Button>
+                                        )}
+                                    </div>
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </div>
 
             <JobDetailsDialog
                 job={selectedJob}
@@ -213,6 +226,6 @@ export function JobsTable({ jobs, isLoading, onSendEmail }: JobsTableProps) {
                 onClose={handleCloseDialog}
                 onSendEmail={handleSendEmail}
             />
-        </div>
+        </>
     );
 }

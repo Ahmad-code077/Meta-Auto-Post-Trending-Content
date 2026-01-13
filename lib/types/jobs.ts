@@ -14,7 +14,9 @@ export interface Job {
     experience: string | null;
     skills: string[] | null;
     timings: string | null;
-    email_draft_link: string | null;
+    gmail_draft_id: string | null;
+    gmail_message_id: string | null;
+    thread_id: string | null;
     status: JobStatus;
     sent_at: string | null;
     follow_up_date: string | null;
