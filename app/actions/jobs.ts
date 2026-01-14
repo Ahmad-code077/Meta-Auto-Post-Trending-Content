@@ -36,7 +36,7 @@ export async function sendJobEmail(jobId: string): Promise<SendEmailResponse> {
         }
 
         // Validate that job has required email data
-        if (!job.email_draft_link) {
+        if (!job.gmail_message_id) {
             return {
                 success: false,
                 message: 'No email draft link available for this job',

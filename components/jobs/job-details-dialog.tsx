@@ -210,7 +210,7 @@ export function JobDetailsDialog({ job, isOpen, onClose, onSendEmail }: JobDetai
                                         <p className="text-base font-medium">{job.follow_up_count}</p>
                                     </div>
                                 )}
-                                {job.gmail_draft_id && (
+                                {job.gmail_message_id && (
                                     <div>
                                         <p className="text-sm text-muted-foreground mb-2">Email Draft</p>
                                         <Button
@@ -219,50 +219,12 @@ export function JobDetailsDialog({ job, isOpen, onClose, onSendEmail }: JobDetai
                                             asChild
                                         >
                                             <a
-                                                href={`https://mail.google.com/mail/u/0/#drafts/${job.gmail_draft_id}`}
+                                                href={`${job.status === 'draft_created' ? `https://mail.google.com/mail/#drafts?compose=${job.gmail_message_id}` : `https://mail.google.com/mail/u/0/#inbox/${job.gmail_message_id}`}`}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                             >
                                                 <ExternalLink className="mr-2 h-4 w-4" />
-                                                View Draft
-                                            </a>
-                                        </Button>
-                                    </div>
-                                )}
-                                {job.gmail_message_id && (
-                                    <div>
-                                        <p className="text-sm text-muted-foreground mb-2">Sent Email</p>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            asChild
-                                        >
-                                            <a
-                                                href={`https://mail.google.com/mail/u/0/#all/${job.gmail_message_id}`}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                            >
-                                                <ExternalLink className="mr-2 h-4 w-4" />
-                                                View Email
-                                            </a>
-                                        </Button>
-                                    </div>
-                                )}
-                                {job.thread_id && (
-                                    <div>
-                                        <p className="text-sm text-muted-foreground mb-2">Email Thread</p>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            asChild
-                                        >
-                                            <a
-                                                href={`https://mail.google.com/mail/u/0/#inbox/${job.thread_id}`}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                            >
-                                                <ExternalLink className="mr-2 h-4 w-4" />
-                                                View Thread
+                                                {job.status === 'draft_created' ? 'View Draft in Gmail' : 'View Sent Email in Gmail'}
                                             </a>
                                         </Button>
                                     </div>

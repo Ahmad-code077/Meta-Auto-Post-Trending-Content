@@ -149,7 +149,7 @@ export function JobsTableMobile({ jobs, isLoading, onSendEmail }: JobsTableMobil
                                     <span className="hidden sm:inline">View</span>
                                 </Button>
 
-                                {job.gmail_draft_id && (
+                                {job.gmail_message_id && (
                                     <Button
                                         variant="ghost"
                                         size="sm"
@@ -157,7 +157,7 @@ export function JobsTableMobile({ jobs, isLoading, onSendEmail }: JobsTableMobil
                                         className="touch-manipulation"
                                     >
                                         <a
-                                            href={`https://mail.google.com/mail/u/0/#drafts/${job.gmail_draft_id}`}
+                                            href={`${job.status === 'draft_created' ? `https://mail.google.com/mail/#drafts?compose=${job.gmail_message_id}` : `https://mail.google.com/mail/u/0/#inbox/${job.gmail_message_id}`}`}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             title="View email draft"

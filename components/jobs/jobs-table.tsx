@@ -176,14 +176,14 @@ export function JobsTable({ jobs, isLoading, onSendEmail }: JobsTableProps) {
                                         >
                                             <Eye className="h-4 w-4" />
                                         </Button>
-                                        {job.gmail_draft_id && (
+                                        {job.gmail_message_id && (
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
                                                 asChild
                                             >
                                                 <a
-                                                    href={`https://mail.google.com/mail/u/0/#drafts/${job.gmail_draft_id}`}
+                                                    href={`${job.status === 'draft_created' ? `https://mail.google.com/mail/#drafts?compose=${job.gmail_message_id}` : `https://mail.google.com/mail/u/0/#inbox/${job.gmail_message_id}`}`}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
                                                     title="View email draft"
