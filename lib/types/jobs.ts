@@ -1,6 +1,5 @@
-export type JobStatus = 'draft_created' | 'sent' | 'follow_up_1' | 'follow_up_2';
+export type JobStatus = 'draft_created' | 'sent' | 'follow_up_1' | 'follow_up_2' | 'replied';
 
-export type WorkType = 'remote' | 'hybrid' | 'onsite' | 'contract' | 'full-time' | 'part-time';
 
 export interface Job {
     id: string;

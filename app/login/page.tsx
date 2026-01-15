@@ -1,7 +1,6 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
@@ -35,7 +34,9 @@ export default function LoginPage() {
             <div className="max-w-md w-full space-y-8 p-8 bg-card rounded-lg shadow-lg border border-border">
                 <div className="text-center">
                     <h2 className="text-3xl font-bold text-foreground">Welcome Back</h2>
-                    <p className="mt-2 text-muted-foreground">
+
+                    <p className="mt-2 text-muted-foreground">👀 Only Admin can Login No user creation for now</p>
+                    {/* <p className="mt-2 text-muted-foreground">
                         Don&apos;t have an account?{' '}
                         <Link
                             href="/signup"
@@ -43,7 +44,7 @@ export default function LoginPage() {
                         >
                             Sign up
                         </Link>
-                    </p>
+                    </p> */}
                 </div>
 
                 <form className="mt-8 space-y-6" onSubmit={handleLogin}>
@@ -91,14 +92,14 @@ export default function LoginPage() {
                         {loading ? 'Logging in...' : 'Login'}
                     </button>
 
-                    <div className="text-center">
+                    {/* <div className="text-center">
                         <Link
                             href="/forgot-password"
                             className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                         >
                             Forgot your password?
                         </Link>
-                    </div>
+                    </div> */}
                 </form>
 
 

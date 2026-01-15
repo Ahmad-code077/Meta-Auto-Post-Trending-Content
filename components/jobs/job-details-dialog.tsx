@@ -20,11 +20,12 @@ interface JobDetailsDialogProps {
     onSendEmail?: (jobId: string) => Promise<void>;
 }
 
-const STATUS_CONFIG: Record<JobStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+export const STATUS_CONFIG: Record<JobStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
     draft_created: { label: 'Draft Created', variant: 'secondary' },
     sent: { label: 'Sent', variant: 'default' },
     follow_up_1: { label: 'Follow-up 1', variant: 'outline' },
     follow_up_2: { label: 'Follow-up 2', variant: 'outline' },
+    replied: { label: 'Replied', variant: 'default' },
 };
 
 export function JobDetailsDialog({ job, isOpen, onClose, onSendEmail }: JobDetailsDialogProps) {
@@ -45,7 +46,7 @@ export function JobDetailsDialog({ job, isOpen, onClose, onSendEmail }: JobDetai
                                 )}
                             </DialogDescription>
                         </div>
-                        <Badge variant={STATUS_CONFIG[job.status].variant} className="text-sm px-3 py-1">
+                        <Badge variant={STATUS_CONFIG[job.status]?.variant} className="text-sm px-3 py-1">
                             {STATUS_CONFIG[job.status].label}
                         </Badge>
                     </div>
@@ -149,14 +150,14 @@ export function JobDetailsDialog({ job, isOpen, onClose, onSendEmail }: JobDetai
                     )}
 
                     {/* Skills */}
-                    {job.skills && job.skills.length > 0 && (
+                    {job.skills && job.skills?.length > 0 && (
                         <div className="border rounded-lg p-4 bg-muted/30">
                             <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                                 <Code className="h-5 w-5" />
                                 Required Skills
                             </h3>
                             <div className="flex flex-wrap gap-2">
-                                {job.skills.map((skill, index) => (
+                                {job.skills?.map((skill, index) => (
                                     <Badge key={index} variant="outline" className="text-sm">
                                         {skill}
                                     </Badge>
@@ -204,7 +205,7 @@ export function JobDetailsDialog({ job, isOpen, onClose, onSendEmail }: JobDetai
                                         </p>
                                     </div>
                                 )}
-                                {job.follow_up_count > 0 && (
+                                {(job.follow_up_count ?? 0) > 0 && (
                                     <div>
                                         <p className="text-sm text-muted-foreground">Follow-up Count</p>
                                         <p className="text-base font-medium">{job.follow_up_count}</p>

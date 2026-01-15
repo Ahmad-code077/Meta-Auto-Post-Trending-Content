@@ -13,10 +13,6 @@ export default function DashboardSidebar() {
     const { isOpen, closeSidebar } = useSidebar()
     const pathname = usePathname()
 
-    // Debug: Log sidebar state
-    useEffect(() => {
-        console.log('Sidebar state changed:', isOpen)
-    }, [isOpen])
 
     // Close sidebar on route change (mobile) - but not on initial mount
     useEffect(() => {

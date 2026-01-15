@@ -11,10 +11,10 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import type { Job, JobStatus } from '@/lib/types/jobs';
+import type { Job } from '@/lib/types/jobs';
 import { ExternalLink, Mail, Loader2, Eye } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { JobDetailsDialog } from './job-details-dialog';
+import { JobDetailsDialog, STATUS_CONFIG } from './job-details-dialog';
 import { JobsTableMobile } from './jobs-table-mobile';
 
 interface JobsTableProps {
@@ -22,13 +22,6 @@ interface JobsTableProps {
     isLoading?: boolean;
     onSendEmail: (jobId: string) => Promise<void>;
 }
-
-const STATUS_CONFIG: Record<JobStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-    draft_created: { label: 'Draft Created', variant: 'secondary' },
-    sent: { label: 'Sent', variant: 'default' },
-    follow_up_1: { label: 'Follow-up 1', variant: 'outline' },
-    follow_up_2: { label: 'Follow-up 2', variant: 'outline' },
-};
 
 export function JobsTable({ jobs, isLoading, onSendEmail }: JobsTableProps) {
     const [sendingEmailId, setSendingEmailId] = useState<string | null>(null);
