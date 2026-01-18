@@ -1,4 +1,4 @@
-export type JobStatus = 'draft_created' | 'sent' | 'follow_up_1' | 'follow_up_2' | 'replied';
+export type JobStatus = 'draft_created' | 'sent' | 'follow_up_1' | 'follow_up_2' | 'replied' | 'closed_no_response';
 
 
 export interface Job {

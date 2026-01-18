@@ -13,6 +13,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import type { JobFilters, JobStatus } from '@/lib/types/jobs';
 import { Search, X } from 'lucide-react';
+import { STATUS_CONFIG } from './job-details-dialog';
 
 interface JobFilterBarProps {
     filters: JobFilters;
@@ -24,10 +25,11 @@ interface JobFilterBarProps {
 
 const STATUS_OPTIONS: { value: JobStatus | 'all'; label: string; variant?: 'default' | 'secondary' | 'destructive' | 'outline' }[] = [
     { value: 'all', label: 'All Statuses', variant: 'outline' },
-    { value: 'draft_created', label: 'Draft Created', variant: 'secondary' },
-    { value: 'sent', label: 'Sent', variant: 'default' },
-    { value: 'follow_up_1', label: 'Follow-up 1', variant: 'outline' },
-    { value: 'follow_up_2', label: 'Follow-up 2', variant: 'outline' },
+    ...Object.entries(STATUS_CONFIG).map(([key, config]) => ({
+        value: key as JobStatus,
+        label: config.label,
+        variant: config.variant,
+    })),
 ];
 
 export function JobFilterBar({
