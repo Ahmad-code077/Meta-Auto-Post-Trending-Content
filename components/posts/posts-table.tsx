@@ -1,7 +1,7 @@
 'use client'
 
 import { Post, PostStatus, Platform } from '@/lib/types/posts'
-import { JSX, useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { sendToWebhook } from '@/app/actions/webhooks'
 import {
     Loader2,
@@ -22,10 +22,6 @@ interface PostsTableProps {
     posts: Post[]
 }
 
-const platformIcons: Record<Platform, JSX.Element> = {
-    instagram: <Instagram className="w-4 h-4" />,
-    facebook: <Facebook className="w-4 h-4" />,
-}
 
 export default function PostsTable({ posts }: PostsTableProps) {
     const [loadingId, setLoadingId] = useState<string | null>(null)
@@ -79,31 +75,6 @@ export default function PostsTable({ posts }: PostsTableProps) {
         })
     }
 
-    const renderPlatformSelector = (postId: string) => {
-        const platforms: Platform[] = ['instagram', 'facebook']
-        const currentPlatforms = selectedPlatforms[postId] || []
-
-        return (
-            <div className="flex flex-col gap-2">
-                <p className="text-sm font-medium text-foreground">Select Platforms</p>
-                <div className="flex flex-wrap gap-2">
-                    {platforms.map(platform => (
-                        <Button
-                            key={platform}
-                            onClick={() => togglePlatform(postId, platform)}
-                            variant={currentPlatforms.includes(platform) ? "default" : "outline"}
-                            size="sm"
-                            className="gap-1"
-                        >
-                            {platformIcons[platform]}
-                            {platform.charAt(0).toUpperCase() + platform.slice(1)}
-                        </Button>
-                    ))}
-                </div>
-            </div>
-        )
-    }
-
     if (posts.length === 0) {
         return (
             <Card>
@@ -126,9 +97,9 @@ export default function PostsTable({ posts }: PostsTableProps) {
                         <TableHeader>
                             <TableRow>
                                 <TableHead className="w-[180px]">Post</TableHead> {/* Smaller on mobile */}
-                                <TableHead className="w-[80px]">Status</TableHead>
+                                <TableHead className="w-20">Status</TableHead>
                                 <TableHead className="w-[90px]">Date</TableHead>
-                                <TableHead className="w-[160px]">Actions</TableHead>
+                                <TableHead className="w-40">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -165,7 +136,7 @@ export default function PostsTable({ posts }: PostsTableProps) {
                                         </div>
                                     </TableCell>
 
-                                    <TableCell className="w-[80px] overflow-hidden p-2">
+                                    <TableCell className="w-20 overflow-hidden p-2">
                                         <Badge variant={getStatusVariant(post.status)} className="truncate text-xs px-1.5 py-0">
                                             {post.status.charAt(0).toUpperCase() + post.status.slice(1)}
                                         </Badge>
@@ -177,7 +148,7 @@ export default function PostsTable({ posts }: PostsTableProps) {
                                         </div>
                                     </TableCell>
 
-                                    <TableCell className="w-[160px] overflow-hidden p-2">
+                                    <TableCell className="w-40 overflow-hidden p-2">
                                         {/* Mobile-optimized actions */}
                                         <div className="space-y-1.5">
                                             <div className="flex items-center gap-1">
