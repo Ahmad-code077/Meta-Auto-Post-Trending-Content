@@ -5,7 +5,9 @@ import Pagination from '@/components/posts/pagination'
 import { Suspense } from 'react'
 import { FilterStatus } from '@/lib/types/posts'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-
+import { Button } from '@/components/ui/button'
+import { Trash2 } from 'lucide-react'
+import { deleteOldPosts, getDeletablePostsCount } from '@/lib/actions/posts'
 
 interface DashboardPageProps {
     searchParams: Promise<{
@@ -36,13 +38,42 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
 
     const { posts, meta } = await getPosts(filters)
 
+    // Get count of deletable posts (older than 24h, not published)
+    const deletablePostsCount = await getDeletablePostsCount()
+
+    // Create a server action wrapper that returns void
+    async function handleDeleteOldPosts() {
+        'use server'
+        await deleteOldPosts() // Don't return anything
+    }
+
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold text-foreground">Content Moderation Dashboard</h1>
-                <p className="text-muted-foreground mt-2">
-                    Manage posts with AI image generation and multi-platform publishing
-                </p>
+            <div className="flex justify-between items-start">
+                <div>
+                    <h1 className="text-3xl font-bold text-foreground">Content Moderation Dashboard</h1>
+                    <p className="text-muted-foreground mt-2">
+                        Manage posts with AI image generation and multi-platform publishing
+                    </p>
+                </div>
+
+                {deletablePostsCount > 0 && (
+                    <form action={handleDeleteOldPosts}>
+                        <Button
+                            type="submit"
+                            variant="destructive"
+                            className="gap-2"
+                        >
+                            <Trash2 className="h-4 w-4" />
+                            Delete Old Posts ({deletablePostsCount})
+                        </Button>
+                    </form>
+                )}
+                {deletablePostsCount === 0 && (
+                    <div className="text-sm text-muted-foreground">
+                        No old posts to delete
+                    </div>
+                )}
             </div>
 
             {/* FilterBar needs Suspense because it uses useSearchParams() */}

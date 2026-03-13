@@ -11,14 +11,11 @@ import {
     Send,
     Instagram,
     Facebook,
-    ExternalLink,
-    MoreHorizontal,
 } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import Image from 'next/image'
 
 interface PostsTableProps {
