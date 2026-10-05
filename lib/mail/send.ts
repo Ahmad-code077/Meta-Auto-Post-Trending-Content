@@ -32,10 +32,13 @@ export async function sendApplicationEmail(
     const job = await getOwnedJob(supabase, userId, draft.job_id);
     assertSendable(draft, job);
 
+    // Applications always carry the resume that is current at send time, not the one from when the draft was made.
+    const resumeId = draft.kind === 'application' ? await currentResumeId(supabase, userId) : null;
+
     // Atomic claim. If another request got here first, this matches no rows.
     const { data: claimed, error: claimError } = await supabase
         .from('application_emails')
-        .update({ status: 'sending', error: null, updated_at: new Date().toISOString() })
+        .update({ status: 'sending', error: null, resume_id: resumeId, updated_at: new Date().toISOString() })
         .eq('id', draft.id)
         .eq('user_id', userId)
         .in('status', ['draft', 'failed'])
@@ -47,7 +50,7 @@ export async function sendApplicationEmail(
 
     let messageId: string;
     try {
-        const attachments = await resumeAttachment(supabase, userId, draft);
+        const attachments = await resumeAttachment(supabase, userId, resumeId);
         messageId = await sendSmtpMessage({
             to: draft.to_email,
             subject: draft.subject,
@@ -101,18 +104,31 @@ function assertSendable(draft: ApplicationEmail, job: Job) {
     }
 }
 
+async function currentResumeId(supabase: SupabaseClient, userId: string): Promise<string> {
+    const { data, error } = await supabase
+        .from('resumes')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('is_current', true)
+        .maybeSingle();
+
+    if (error) throw new HarnessError('Could not look up your resume');
+    if (!data) throw new HarnessError('Upload your resume in the profile before sending an application');
+    return data.id;
+}
+
 // The resume goes out with the first application only. Follow-ups never carry it.
-async function resumeAttachment(supabase: SupabaseClient, userId: string, draft: ApplicationEmail) {
-    if (draft.kind !== 'application' || !draft.resume_id) return undefined;
+async function resumeAttachment(supabase: SupabaseClient, userId: string, resumeId: string | null) {
+    if (!resumeId) return undefined;
 
     const { data: resume, error } = await supabase
         .from('resumes')
         .select('storage_path, file_name, content_type')
-        .eq('id', draft.resume_id)
+        .eq('id', resumeId)
         .eq('user_id', userId)
         .single();
 
-    if (error || !resume) throw new HarnessError('The resume attached to this draft no longer exists');
+    if (error || !resume) throw new HarnessError('The resume could not be found');
 
     const { data: file, error: downloadError } = await supabase.storage
         .from('resumes')
