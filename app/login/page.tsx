@@ -1,111 +1,86 @@
 'use client'
+
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { createClient } from '@/lib/supabase/client'
 
 export default function LoginPage() {
+    const router = useRouter()
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
-    const [loading, setLoading] = useState(false)
-    const [error, setError] = useState('')
-    const router = useRouter()
+    const [isSubmitting, setIsSubmitting] = useState(false)
+    const [error, setError] = useState<string | null>(null)
 
-    const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
-        e.preventDefault()
-        setLoading(true)
-        setError('')
+    const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault()
+        setIsSubmitting(true)
+        setError(null)
 
-        const supabase = createClient()
-        const { error } = await supabase.auth.signInWithPassword({
-            email,
-            password
-        })
+        const { error: signInError } = await createClient().auth.signInWithPassword({ email, password })
 
-        if (error) {
-            setError(error.message)
-        } else {
-            router.push('/dashboard')
+        if (signInError) {
+            setError('Email or password is incorrect.')
+            setIsSubmitting(false)
+            return
         }
-        setLoading(false)
+
+        router.replace('/dashboard')
+        router.refresh()
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-background">
-            <div className="max-w-md w-full space-y-8 p-8 bg-card rounded-lg shadow-lg border border-border">
-                <div className="text-center">
-                    <h2 className="text-3xl font-bold text-foreground">Welcome Back</h2>
+        <main className="flex min-h-screen items-center justify-center bg-background px-4">
+            <Card className="w-full max-w-sm">
+                <CardHeader>
+                    <CardTitle className="text-xl">Sign in</CardTitle>
+                    <CardDescription>Admin access only.</CardDescription>
+                </CardHeader>
 
-                    <p className="mt-2 text-muted-foreground">👀 Only Admin can Login No user creation for now</p>
-                    {/* <p className="mt-2 text-muted-foreground">
-                        Don&apos;t have an account?{' '}
-                        <Link
-                            href="/signup"
-                            className="text-primary hover:text-primary/80 font-medium transition-colors"
-                        >
-                            Sign up
-                        </Link>
-                    </p> */}
-                </div>
-
-                <form className="mt-8 space-y-6" onSubmit={handleLogin}>
-                    {error && (
-                        <div className="bg-destructive/10 text-destructive p-3 rounded-md text-sm border border-destructive/20">
-                            {error}
-                        </div>
-                    )}
-
-                    <div className="space-y-4">
+                <CardContent>
+                    <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-foreground">
-                                Email
-                            </label>
-                            <input
+                            <Label htmlFor="email">Email</Label>
+                            <Input
+                                id="email"
                                 type="email"
+                                autoComplete="username"
                                 required
                                 value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                className="w-full px-3 py-2 bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+                                onChange={(event) => setEmail(event.target.value)}
                                 placeholder="you@example.com"
                             />
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-foreground">
-                                Password
-                            </label>
-                            <input
+                            <Label htmlFor="password">Password</Label>
+                            <Input
+                                id="password"
                                 type="password"
+                                autoComplete="current-password"
                                 required
                                 value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                className="w-full px-3 py-2 bg-background border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
-                                placeholder="••••••••"
+                                onChange={(event) => setPassword(event.target.value)}
                             />
                         </div>
-                    </div>
 
-                    <button
-                        type="submit"
-                        disabled={loading}
-                        className="w-full bg-primary text-primary-foreground py-2.5 px-4 rounded-md hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
-                    >
-                        {loading ? 'Logging in...' : 'Login'}
-                    </button>
+                        {error && (
+                            <p role="alert" className="text-sm text-destructive">
+                                {error}
+                            </p>
+                        )}
 
-                    {/* <div className="text-center">
-                        <Link
-                            href="/forgot-password"
-                            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                            Forgot your password?
-                        </Link>
-                    </div> */}
-                </form>
-
-
-
-
-            </div>
-        </div>
+                        <Button type="submit" className="w-full" disabled={isSubmitting}>
+                            {isSubmitting && <Loader2 className="animate-spin" />}
+                            {isSubmitting ? 'Signing in' : 'Sign in'}
+                        </Button>
+                    </form>
+                </CardContent>
+            </Card>
+        </main>
     )
 }
