@@ -1,8 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { Briefcase, Loader2, Plus } from 'lucide-react';
+import Link from 'next/link';
+import { sendJobEmail } from '@/app/actions/jobs';
 import { JobFilterBar } from '@/components/jobs/filter-bar';
+import { JobDetailsDialog } from '@/components/jobs/job-details-dialog';
 import { JobsTable } from '@/components/jobs/jobs-table';
+import { JobsTableMobile } from '@/components/jobs/jobs-table-mobile';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
     Pagination,
     PaginationContent,
@@ -12,210 +20,144 @@ import {
     PaginationNext,
     PaginationPrevious,
 } from '@/components/ui/pagination';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import type { Job, JobFilters } from '@/lib/types/jobs';
-import { sendJobEmail } from '@/app/actions/jobs';
 import { useToast } from '@/hooks/use-toast';
-import { Briefcase } from 'lucide-react';
 import { getJobs, getUniqueCompanies, getUniqueLocations, getUniqueWorkTypes } from '@/lib/data/jobs';
+import type { Job, JobFilters, JobStatus } from '@/lib/types/jobs';
+
+const PAGE_SIZE = 10;
 
 export default function JobPostsPage() {
     const { toast } = useToast();
+
     const [jobs, setJobs] = useState<Job[]>([]);
     const [filters, setFilters] = useState<JobFilters>({});
-    const [companies, setCompanies] = useState<string[]>([]);
-    const [locations, setLocations] = useState<string[]>([]);
-    const [workTypes, setWorkTypes] = useState<string[]>([]);
     const [page, setPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [totalCount, setTotalCount] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
-    const [isInitialLoad, setIsInitialLoad] = useState(true);
+    const [loadError, setLoadError] = useState(false);
 
-    const pageSize = 10;
+    const [companies, setCompanies] = useState<string[]>([]);
+    const [locations, setLocations] = useState<string[]>([]);
+    const [workTypes, setWorkTypes] = useState<string[]>([]);
 
-    // Fetch filter options
+    const [sendingId, setSendingId] = useState<string | null>(null);
+    const [sendTarget, setSendTarget] = useState<Job | null>(null);
+    const [detailJob, setDetailJob] = useState<Job | null>(null);
+    const [detailOpen, setDetailOpen] = useState(false);
+
     useEffect(() => {
-        const fetchFilterOptions = async () => {
-            try {
-                const [companiesData, locationsData, workTypesData] = await Promise.all([
-                    getUniqueCompanies(),
-                    getUniqueLocations(),
-                    getUniqueWorkTypes(),
-                ]);
-
+        Promise.all([getUniqueCompanies(), getUniqueLocations(), getUniqueWorkTypes()])
+            .then(([companiesData, locationsData, workTypesData]) => {
                 setCompanies(companiesData);
                 setLocations(locationsData);
                 setWorkTypes(workTypesData);
-            } catch (error) {
-                console.error('Error fetching filter options:', error);
-            }
-        };
-
-        fetchFilterOptions();
+            })
+            .catch((error) => console.error('Error fetching filter options:', error));
     }, []);
 
-    // Fetch jobs
+    // Ignore responses from requests that a newer filter change has superseded.
     useEffect(() => {
-        const fetchJobs = async () => {
-            setIsLoading(true);
-            try {
-                const result = await getJobs(filters, page, pageSize);
+        let current = true;
+        setIsLoading(true);
 
+        getJobs(filters, page, PAGE_SIZE)
+            .then((result) => {
+                if (!current) return;
                 setJobs(result.data);
                 setTotalPages(result.totalPages);
                 setTotalCount(result.count);
-            } catch (error) {
+                setLoadError(false);
+            })
+            .catch((error) => {
+                if (!current) return;
                 console.error('Error fetching jobs:', error);
-                toast({
-                    title: 'Error',
-                    description: 'Failed to load jobs. Please try again.',
-                    variant: 'destructive',
-                });
-            } finally {
-                setIsLoading(false);
-                setIsInitialLoad(false);
-            }
-        };
+                setLoadError(true);
+                toast({ title: 'Could not load applications', description: 'Check your connection and try again.', variant: 'destructive' });
+            })
+            .finally(() => {
+                if (current) setIsLoading(false);
+            });
 
-        fetchJobs();
+        return () => {
+            current = false;
+        };
     }, [filters, page, toast]);
-    const handleFiltersChange = (newFilters: JobFilters) => {
-        setFilters(newFilters);
-        setPage(1); // Reset to first page when filters change
+
+    const handleFiltersChange = (next: JobFilters) => {
+        setFilters(next);
+        setPage(1);
     };
 
-    const handleSendEmail = async (jobId: string) => {
+    const patchJob = useCallback((jobId: string, patch: Partial<Job>) => {
+        setJobs((prev) => prev.map((job) => (job.id === jobId ? { ...job, ...patch } : job)));
+        setDetailJob((prev) => (prev && prev.id === jobId ? { ...prev, ...patch } : prev));
+    }, []);
+
+    // Optimistic: the row shows "Sent" right away and reverts if the webhook fails.
+    const sendEmail = async (job: Job) => {
+        const previous = { status: job.status, sent_at: job.sent_at };
+        const optimisticStatus: JobStatus = 'sent';
+
+        setSendingId(job.id);
+        patchJob(job.id, { status: optimisticStatus, sent_at: new Date().toISOString() });
+
         try {
-            const result = await sendJobEmail(jobId);
+            const result = await sendJobEmail(job.id);
 
             if (result.success) {
-                toast({
-                    title: 'Success',
-                    description: result.message,
-                });
-
-                // Refresh the jobs list
-                const updatedResult = await getJobs(filters, page, pageSize);
-                setJobs(updatedResult.data);
+                toast({ title: 'Email sent', description: `Sent to ${job.recruiter_email ?? 'the recruiter'}.` });
             } else {
-                toast({
-                    title: 'Error',
-                    description: result.message,
-                    variant: 'destructive',
-                });
+                patchJob(job.id, previous);
+                toast({ title: 'Email not sent', description: result.message, variant: 'destructive' });
             }
         } catch (error) {
             console.error('Error sending email:', error);
-            toast({
-                title: 'Error',
-                description: 'An unexpected error occurred while sending the email.',
-                variant: 'destructive',
-            });
+            patchJob(job.id, previous);
+            toast({ title: 'Email not sent', description: 'An unexpected error occurred.', variant: 'destructive' });
+        } finally {
+            setSendingId(null);
         }
     };
 
-    const renderPagination = () => {
-        if (totalPages <= 1) return null;
-
-        const pages: number[] = [];
-        const maxVisiblePages = 5;
-
-        let startPage = Math.max(1, page - Math.floor(maxVisiblePages / 2));
-        const endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-
-        if (endPage - startPage < maxVisiblePages - 1) {
-            startPage = Math.max(1, endPage - maxVisiblePages + 1);
-        }
-
-        for (let i = startPage; i <= endPage; i++) {
-            pages.push(i);
-        }
-
-        return (
-            <Pagination>
-                <PaginationContent>
-                    <PaginationItem>
-                        <PaginationPrevious
-                            onClick={() => page > 1 && setPage(page - 1)}
-                            className={page === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
-                        />
-                    </PaginationItem>
-
-                    {startPage > 1 && (
-                        <>
-                            <PaginationItem>
-                                <PaginationLink onClick={() => setPage(1)} className="cursor-pointer">
-                                    1
-                                </PaginationLink>
-                            </PaginationItem>
-                            {startPage > 2 && (
-                                <PaginationItem>
-                                    <PaginationEllipsis />
-                                </PaginationItem>
-                            )}
-                        </>
-                    )}
-
-                    {pages.map((pageNum) => (
-                        <PaginationItem key={pageNum}>
-                            <PaginationLink
-                                onClick={() => setPage(pageNum)}
-                                isActive={pageNum === page}
-                                className="cursor-pointer"
-                            >
-                                {pageNum}
-                            </PaginationLink>
-                        </PaginationItem>
-                    ))}
-
-                    {endPage < totalPages && (
-                        <>
-                            {endPage < totalPages - 1 && (
-                                <PaginationItem>
-                                    <PaginationEllipsis />
-                                </PaginationItem>
-                            )}
-                            <PaginationItem>
-                                <PaginationLink onClick={() => setPage(totalPages)} className="cursor-pointer">
-                                    {totalPages}
-                                </PaginationLink>
-                            </PaginationItem>
-                        </>
-                    )}
-
-                    <PaginationItem>
-                        <PaginationNext
-                            onClick={() => page < totalPages && setPage(page + 1)}
-                            className={page === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
-                        />
-                    </PaginationItem>
-                </PaginationContent>
-            </Pagination>
-        );
+    const requestSend = (job: Job) => {
+        setDetailOpen(false);
+        setSendTarget(job);
     };
+
+    const openDetails = (job: Job) => {
+        setDetailJob(job);
+        setDetailOpen(true);
+    };
+
+    const showEmpty = !isLoading && !loadError && jobs.length === 0;
 
     return (
-        <div className="w-full p-3 sm:p-6 space-y-4 sm:space-y-6">
+        <div className="space-y-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-muted-foreground">
+                    {isLoading ? 'Loading applications' : `${totalCount} ${totalCount === 1 ? 'application' : 'applications'}`}
+                </p>
+                <Button asChild>
+                    <Link href="/dashboard/job-posts/new">
+                        <Plus />
+                        New application
+                    </Link>
+                </Button>
+            </div>
+
             <Card>
-                <CardHeader className="p-4 sm:p-6">
-                    <div className="flex items-start sm:items-center gap-3">
-                        <Briefcase className="h-5 w-5 sm:h-6 sm:w-6 shrink-0 mt-0.5 sm:mt-0" />
-                        <div className="min-w-0 flex-1">
-                            <CardTitle className="text-lg sm:text-xl">Job Posts Management</CardTitle>
-                            <CardDescription className="text-xs sm:text-sm">
-                                Manage and track your job applications
-                                {!isInitialLoad && totalCount > 0 && (
-                                    <span className="block sm:inline sm:ml-2 mt-1 sm:mt-0">
-                                        • {totalCount} {totalCount === 1 ? 'job' : 'jobs'} found
-                                    </span>
-                                )}
-                            </CardDescription>
+                <CardHeader>
+                    <div className="flex items-center gap-3">
+                        <Briefcase className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+                        <div>
+                            <CardTitle>Applications</CardTitle>
+                            <CardDescription>Drafts, sent emails and follow-ups</CardDescription>
                         </div>
                     </div>
                 </CardHeader>
-                <CardContent className="p-3 sm:p-6 space-y-4 sm:space-y-6">
-                    {/* Filters */}
+
+                <CardContent className="space-y-6">
                     <JobFilterBar
                         filters={filters}
                         onFiltersChange={handleFiltersChange}
@@ -224,24 +166,119 @@ export default function JobPostsPage() {
                         workTypes={workTypes}
                     />
 
-                    {/* Table */}
-                    <JobsTable
-                        jobs={jobs}
-                        isLoading={isLoading}
-                        onSendEmail={handleSendEmail}
-                    />
+                    {isLoading && jobs.length === 0 ? (
+                        <div className="flex h-48 items-center justify-center">
+                            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label="Loading" />
+                        </div>
+                    ) : showEmpty ? (
+                        <div className="py-16 text-center">
+                            <p className="text-sm font-medium text-foreground">No applications match these filters</p>
+                            <p className="mt-1 text-sm text-muted-foreground">Clear the filters or add a new application.</p>
+                        </div>
+                    ) : loadError && jobs.length === 0 ? (
+                        <div className="py-16 text-center">
+                            <p className="text-sm font-medium text-foreground">Applications could not be loaded</p>
+                            <p className="mt-1 text-sm text-muted-foreground">Refresh the page to try again.</p>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="hidden lg:block">
+                                <JobsTable jobs={jobs} sendingId={sendingId} onView={openDetails} onSend={requestSend} />
+                            </div>
+                            <div className="lg:hidden">
+                                <JobsTableMobile jobs={jobs} sendingId={sendingId} onView={openDetails} onSend={requestSend} />
+                            </div>
+                        </>
+                    )}
 
-                    {/* Pagination */}
-                    {!isLoading && jobs.length > 0 && (
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
-                            <p className="text-xs sm:text-sm text-muted-foreground">
-                                Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalCount)} of {totalCount} jobs
+                    {totalPages > 1 && (
+                        <div className="flex flex-col items-center justify-between gap-3 sm:flex-row">
+                            <p className="text-sm text-muted-foreground">
+                                {(page - 1) * PAGE_SIZE + 1} to {Math.min(page * PAGE_SIZE, totalCount)} of {totalCount}
                             </p>
-                            {renderPagination()}
+                            <PageControls page={page} totalPages={totalPages} onChange={setPage} />
                         </div>
                     )}
                 </CardContent>
             </Card>
+
+            <JobDetailsDialog
+                job={detailJob}
+                open={detailOpen}
+                onClose={() => setDetailOpen(false)}
+                onSend={requestSend}
+            />
+
+            <ConfirmDialog
+                open={sendTarget !== null}
+                onOpenChange={(open) => !open && setSendTarget(null)}
+                title="Send this email?"
+                description={
+                    sendTarget
+                        ? `The draft for ${sendTarget.title || 'this role'} will be sent to ${sendTarget.recruiter_email ?? 'the recruiter'}. Sent emails cannot be recalled from here.`
+                        : ''
+                }
+                confirmLabel="Send email"
+                onConfirm={() => {
+                    const job = sendTarget;
+                    setSendTarget(null);
+                    if (job) void sendEmail(job);
+                }}
+            />
         </div>
+    );
+}
+
+function PageControls({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (page: number) => void }) {
+    const start = Math.max(1, Math.min(page - 2, totalPages - 4));
+    const end = Math.min(totalPages, start + 4);
+    const pages = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+
+    return (
+        <Pagination className="mx-0 w-auto justify-end">
+            <PaginationContent>
+                <PaginationItem>
+                    <PaginationPrevious
+                        onClick={() => page > 1 && onChange(page - 1)}
+                        aria-disabled={page === 1}
+                        className={page === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                    />
+                </PaginationItem>
+
+                {start > 1 && (
+                    <>
+                        <PaginationItem>
+                            <PaginationLink onClick={() => onChange(1)} className="cursor-pointer">1</PaginationLink>
+                        </PaginationItem>
+                        {start > 2 && <PaginationItem><PaginationEllipsis /></PaginationItem>}
+                    </>
+                )}
+
+                {pages.map((p) => (
+                    <PaginationItem key={p}>
+                        <PaginationLink onClick={() => onChange(p)} isActive={p === page} className="cursor-pointer">
+                            {p}
+                        </PaginationLink>
+                    </PaginationItem>
+                ))}
+
+                {end < totalPages && (
+                    <>
+                        {end < totalPages - 1 && <PaginationItem><PaginationEllipsis /></PaginationItem>}
+                        <PaginationItem>
+                            <PaginationLink onClick={() => onChange(totalPages)} className="cursor-pointer">{totalPages}</PaginationLink>
+                        </PaginationItem>
+                    </>
+                )}
+
+                <PaginationItem>
+                    <PaginationNext
+                        onClick={() => page < totalPages && onChange(page + 1)}
+                        aria-disabled={page === totalPages}
+                        className={page === totalPages ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                    />
+                </PaginationItem>
+            </PaginationContent>
+        </Pagination>
     );
 }

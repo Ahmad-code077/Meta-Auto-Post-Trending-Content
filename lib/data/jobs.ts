@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/client';
 import type { Job, JobFilters, JobsResponse } from '@/lib/types/jobs';
 
+// Throws on failure so the caller can show an error instead of an empty list.
 export async function getJobs(
     filters: JobFilters = {},
     page: number = 1,
@@ -8,75 +9,55 @@ export async function getJobs(
 ): Promise<JobsResponse> {
     const supabase = createClient();
 
-    try {
-        // Get current user
-        const { data: { user } } = await supabase.auth.getUser();
-
-        if (!user) {
-            throw new Error('User not authenticated');
-        }
-
-        // Start building the query
-        let query = supabase
-            .from('jobs')
-            .select('*', { count: 'exact' })
-            .eq('user_id', user.id);
-
-        // Apply filters
-        if (filters.status && filters.status !== 'all') {
-            query = query.eq('status', filters.status);
-        }
-
-        if (filters.company) {
-            query = query.ilike('company', `%${filters.company}%`);
-        }
-
-        if (filters.location) {
-            query = query.ilike('location', `%${filters.location}%`);
-        }
-
-        if (filters.work_type) {
-            query = query.eq('work_type', filters.work_type);
-        }
-
-        if (filters.search) {
-            query = query.or(`title.ilike.%${filters.search}%,company.ilike.%${filters.search}%,location.ilike.%${filters.search}%`);
-        }
-
-        // Apply pagination
-        const from = (page - 1) * pageSize;
-        const to = from + pageSize - 1;
-
-        query = query
-            .range(from, to)
-            .order('created_at', { ascending: false });
-
-        const { data, error, count } = await query;
-
-        if (error) {
-            console.error('Error fetching jobs:', error);
-            throw error;
-        }
-
-        const totalPages = count ? Math.ceil(count / pageSize) : 0;
-
-        return {
-            data: (data as Job[]) || [],
-            count: count || 0,
-            page,
-            pageSize,
-            totalPages,
-        };
-    } catch (error) {
-        console.error('Error in getJobs:', error);
-        return {
-            data: [],
-            count: 0,
-            page,
-            pageSize,
-            totalPages: 0,
-        };
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+        throw new Error('User not authenticated');
     }
+
+    let query = supabase
+        .from('jobs')
+        .select('*', { count: 'exact' })
+        .eq('user_id', user.id);
+
+    if (filters.status && filters.status !== 'all') {
+        query = query.eq('status', filters.status);
+    }
+
+    if (filters.company) {
+        query = query.ilike('company', `%${filters.company}%`);
+    }
+
+    if (filters.location) {
+        query = query.ilike('location', `%${filters.location}%`);
+    }
+
+    if (filters.work_type) {
+        query = query.eq('work_type', filters.work_type);
+    }
+
+    if (filters.search) {
+        query = query.or(`title.ilike.%${filters.search}%,company.ilike.%${filters.search}%,location.ilike.%${filters.search}%`);
+    }
+
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    const { data, error, count } = await query
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+    if (error) {
+        console.error('Error fetching jobs:', error);
+        throw error;
+    }
+
+    return {
+        data: (data as Job[]) || [],
+        count: count || 0,
+        page,
+        pageSize,
+        totalPages: count ? Math.ceil(count / pageSize) : 0,
+    };
 }
 
 export async function getUniqueCompanies(): Promise<string[]> {

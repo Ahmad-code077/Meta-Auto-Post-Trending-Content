@@ -13,7 +13,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import type { JobFilters, JobStatus } from '@/lib/types/jobs';
 import { Search, X } from 'lucide-react';
-import { STATUS_CONFIG } from './job-details-dialog';
+import { STATUS_CONFIG } from './job-meta';
 
 interface JobFilterBarProps {
     filters: JobFilters;
