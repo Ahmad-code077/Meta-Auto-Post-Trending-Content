@@ -1,4 +1,4 @@
-import { Briefcase, FileText, Plus, type LucideIcon } from 'lucide-react'
+import { Briefcase, FileText, Plus, UserRound, type LucideIcon } from 'lucide-react'
 
 // Single source of truth for the dashboard navigation.
 // The sidebar and the header title both read from here.
@@ -16,6 +16,12 @@ export interface NavSection {
 }
 
 export const NAV_SECTIONS: NavSection[] = [
+    {
+        title: 'Profile',
+        items: [
+            { label: 'Profile', href: '/dashboard/profile', icon: UserRound },
+        ],
+    },
     {
         title: 'Meta Automation',
         items: [
