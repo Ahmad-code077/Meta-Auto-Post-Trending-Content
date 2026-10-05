@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState, ReactNode } from 'react'
 
 interface SidebarContextType {
     isOpen: boolean
@@ -11,18 +11,20 @@ interface SidebarContextType {
 
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined)
 
+// Controls the mobile navigation drawer only. The desktop sidebar is always visible.
 export function SidebarProvider({ children }: { children: ReactNode }) {
     const [isOpen, setIsOpen] = useState(false)
 
-    const openSidebar = () => setIsOpen(true)
-    const closeSidebar = () => setIsOpen(false)
-    const toggleSidebar = () => setIsOpen(!isOpen)
+    const openSidebar = useCallback(() => setIsOpen(true), [])
+    const closeSidebar = useCallback(() => setIsOpen(false), [])
+    const toggleSidebar = useCallback(() => setIsOpen((open) => !open), [])
 
-    return (
-        <SidebarContext.Provider value={{ isOpen, openSidebar, closeSidebar, toggleSidebar }}>
-            {children}
-        </SidebarContext.Provider>
+    const value = useMemo(
+        () => ({ isOpen, openSidebar, closeSidebar, toggleSidebar }),
+        [isOpen, openSidebar, closeSidebar, toggleSidebar]
     )
+
+    return <SidebarContext.Provider value={value}>{children}</SidebarContext.Provider>
 }
 
 export function useSidebar() {
