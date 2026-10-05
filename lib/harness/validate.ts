@@ -49,6 +49,12 @@ export function validateGeneratedEmail(email: GeneratedEmail, ctx: ValidationCon
         }
     }
 
+    // Follow-ups restate the earlier email. They add no profile evidence and name no candidate skills.
+    if (ctx.kind === 'follow_up') {
+        if (email.citations.length > 0) errors.push('Follow-ups must not cite profile evidence.');
+        if (email.skills_referenced.length > 0) errors.push('Follow-ups must not mention candidate skills.');
+    }
+
     // Skills named by the writer must exist in the profile.
     for (const skill of email.skills_referenced) {
         if (!findProfileSkill(ctx.profile.skills, skill)) {

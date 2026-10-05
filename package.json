@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "tsc -p tests/tsconfig.json && node node_modules/.cache/harness-tests/tests/harness.test.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

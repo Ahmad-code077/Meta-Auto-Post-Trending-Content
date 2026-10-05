@@ -126,22 +126,17 @@ export async function writeFollowUpEmail(input: WriteFollowUpInput): Promise<Wri
         name: 'follow_up_email',
         instructions: FOLLOW_UP_INSTRUCTIONS,
         basePrompt: JSON.stringify(payload, null, 2),
-        validate: (email) => {
-            const errors = validateGeneratedEmail(email, {
-                kind: 'follow_up',
-                plan: null,
-                evidence: [],
-                profile: input.profile,
-                jobTitle: input.job.title,
-                jobCompany: input.job.company,
-                sourceText: `${input.previous.body} ${input.daysSinceSent}`,
-                maxWords: MAX_FOLLOW_UP_WORDS,
-                minWords: 15,
-            });
-            if (email.citations.length > 0) errors.push('Follow-ups must not cite profile evidence.');
-            if (email.skills_referenced.length > 0) errors.push('Follow-ups must not mention candidate skills.');
-            return errors;
-        },
+        validate: (email) => validateGeneratedEmail(email, {
+            kind: 'follow_up',
+            plan: null,
+            evidence: [],
+            profile: input.profile,
+            jobTitle: input.job.title,
+            jobCompany: input.job.company,
+            sourceText: `${input.previous.body} ${input.daysSinceSent}`,
+            maxWords: MAX_FOLLOW_UP_WORDS,
+            minWords: 15,
+        }),
     });
 }
 
