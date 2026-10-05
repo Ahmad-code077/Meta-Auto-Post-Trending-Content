@@ -3,71 +3,14 @@
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { detailsSchema, experienceSchema, projectSchema, skillSchema } from '@/lib/validation/profile';
 import { requireUser } from '@/lib/supabase/server';
 import { normalizeText } from '@/lib/harness/text';
 import type { ActionResult } from '@/lib/types/actions';
-import type { Resume } from '@/lib/types/profile';
+import { toResumeSummary, type ResumeSummary } from '@/lib/types/profile';
 
 const RESUME_MAX_BYTES = 5 * 1024 * 1024;
 const RESUME_TYPES = ['application/pdf'];
-
-const optionalText = (max: number) =>
-    z.string().trim().max(max).optional().transform((v) => (v ? v : null));
-
-const optionalUrl = z
-    .string()
-    .trim()
-    .max(300)
-    .optional()
-    .transform((v) => (v ? v : null))
-    .refine((v) => v === null || /^https?:\/\/\S+$/.test(v), 'Enter a full URL starting with https://');
-
-const optionalDate = z
-    .string()
-    .optional()
-    .transform((v) => (v ? v : null))
-    .refine((v) => v === null || /^\d{4}-\d{2}-\d{2}$/.test(v), 'Use a date in YYYY-MM-DD format');
-
-const detailsSchema = z.object({
-    full_name: optionalText(120),
-    headline: optionalText(160),
-    location: optionalText(120),
-    phone: optionalText(40),
-    contact_email: z.string().trim().email().max(200).optional().or(z.literal('')).transform((v) => (v ? v : null)),
-    summary: optionalText(1200),
-    linkedin_url: optionalUrl,
-    github_url: optionalUrl,
-    portfolio_url: optionalUrl,
-});
-
-const skillSchema = z.object({
-    id: z.string().uuid().optional(),
-    name: z.string().trim().min(1, 'Skill name is required').max(60),
-    aliases: z.array(z.string().trim().min(1).max(60)).max(10).default([]),
-});
-
-const experienceSchema = z.object({
-    id: z.string().uuid().optional(),
-    company: z.string().trim().min(1, 'Company is required').max(120),
-    role: z.string().trim().min(1, 'Role is required').max(120),
-    location: optionalText(120),
-    start_date: optionalDate,
-    end_date: optionalDate,
-    responsibilities: z.array(z.string().trim().min(1).max(400)).max(30).default([]),
-    achievements: z.array(z.string().trim().min(1).max(400)).max(30).default([]),
-    skill_ids: z.array(z.string().uuid()).max(60).default([]),
-});
-
-const projectSchema = z.object({
-    id: z.string().uuid().optional(),
-    name: z.string().trim().min(1, 'Project name is required').max(120),
-    url: optionalUrl,
-    description: optionalText(1200),
-    contribution: optionalText(1200),
-    start_date: optionalDate,
-    end_date: optionalDate,
-    skill_ids: z.array(z.string().uuid()).max(60).default([]),
-});
 
 export type ProfileDetailsInput = z.input<typeof detailsSchema>;
 export type SkillInput = z.input<typeof skillSchema>;
@@ -193,7 +136,7 @@ export async function deleteProject(id: string): Promise<ActionResult> {
 
 // Replaces the current resume. The old file stays in storage so sent applications keep
 // pointing at the version they used.
-export async function uploadResume(formData: FormData): Promise<ActionResult<Resume>> {
+export async function uploadResume(formData: FormData): Promise<ActionResult<ResumeSummary>> {
     const file = formData.get('resume');
     if (!(file instanceof File) || file.size === 0) {
         return { success: false, message: 'Choose a resume file' };
@@ -215,9 +158,7 @@ export async function uploadResume(formData: FormData): Promise<ActionResult<Res
 
     if (uploadError) return dbFailure('Could not upload resume', uploadError);
 
-    // Unmark the previous resume first. The partial unique index allows only one current row.
-    await supabase.from('resumes').update({ is_current: false }).eq('user_id', user.id).eq('is_current', true);
-
+    // Insert as not current first. If anything fails after this point, the previous resume stays current.
     const { data, error } = await supabase
         .from('resumes')
         .insert({
@@ -227,7 +168,7 @@ export async function uploadResume(formData: FormData): Promise<ActionResult<Res
             file_name: file.name.slice(0, 200),
             content_type: file.type,
             size_bytes: file.size,
-            is_current: true,
+            is_current: false,
         })
         .select('id, storage_path, file_name, content_type, size_bytes, created_at')
         .single();
@@ -237,8 +178,49 @@ export async function uploadResume(formData: FormData): Promise<ActionResult<Res
         return dbFailure('Could not save resume', error ?? { message: 'Not found' });
     }
 
+    // The partial unique index allows one current row, so the old one is unmarked before the new one is marked.
+    // Old rows and files are kept so applications that already used them keep a valid reference.
+    const { error: unmarkError } = await supabase
+        .from('resumes')
+        .update({ is_current: false })
+        .eq('user_id', user.id)
+        .eq('is_current', true)
+        .neq('id', resumeId);
+
+    const { error: markError } = unmarkError
+        ? { error: unmarkError }
+        : await supabase.from('resumes').update({ is_current: true }).eq('id', resumeId).eq('user_id', user.id);
+
+    if (markError) {
+        await supabase.from('resumes').delete().eq('id', resumeId).eq('user_id', user.id);
+        await supabase.storage.from('resumes').remove([storagePath]);
+        return dbFailure('Could not save resume', markError);
+    }
+
     revalidatePath('/dashboard/profile');
-    return { success: true, data: data as Resume };
+    return { success: true, data: toResumeSummary(data) };
+}
+
+// Short-lived link to the current resume. The storage path is never sent to the browser.
+export async function getCurrentResumeUrl(): Promise<ActionResult<{ url: string; fileName: string }>> {
+    const { supabase, user } = await requireUser();
+
+    const { data: resume, error } = await supabase
+        .from('resumes')
+        .select('storage_path, file_name')
+        .eq('user_id', user.id)
+        .eq('is_current', true)
+        .maybeSingle();
+
+    if (error) return dbFailure('Could not load resume', error);
+    if (!resume) return { success: false, message: 'No resume uploaded yet' };
+
+    const { data, error: signError } = await supabase.storage
+        .from('resumes')
+        .createSignedUrl(resume.storage_path, 300);
+
+    if (signError || !data) return dbFailure('Could not open resume', signError ?? { message: 'Not found' });
+    return { success: true, data: { url: data.signedUrl, fileName: resume.file_name } };
 }
 
 async function ownsSkills(supabase: Awaited<ReturnType<typeof requireUser>>['supabase'], userId: string, ids: string[]) {

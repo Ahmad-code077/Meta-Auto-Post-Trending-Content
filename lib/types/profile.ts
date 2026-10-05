@@ -51,6 +51,19 @@ export interface Resume {
     created_at: string
 }
 
+// What the browser may see about a resume: never the storage path.
+export type ResumeSummary = Omit<Resume, 'storage_path'>;
+
+export function toResumeSummary(resume: Resume): ResumeSummary {
+    return {
+        id: resume.id,
+        file_name: resume.file_name,
+        content_type: resume.content_type,
+        size_bytes: resume.size_bytes,
+        created_at: resume.created_at,
+    };
+}
+
 // Everything the harness needs, loaded in one call.
 export interface ProfileSnapshot {
     details: ProfileDetails
