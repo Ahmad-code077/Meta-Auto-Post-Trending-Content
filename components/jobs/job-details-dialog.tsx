@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import Link from 'next/link';
 import { format, formatDistanceToNow } from 'date-fns';
 import { ExternalLink, Mail } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -94,6 +95,9 @@ export function JobDetailsDialog({ job, open, onClose, onSend }: JobDetailsDialo
                     ) : <span />}
                     <div className="flex gap-2">
                         <Button variant="outline" onClick={onClose}>Close</Button>
+                        <Button variant="outline" asChild onClick={onClose}>
+                            <Link href={`/dashboard/job-posts/${job.id}`}>Review draft</Link>
+                        </Button>
                         {canSendEmail(job) && (
                             <Button onClick={() => onSend(job)}>
                                 <Mail />

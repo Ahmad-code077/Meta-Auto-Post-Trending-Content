@@ -56,7 +56,8 @@ export default function NewApplicationPage() {
                 variant: result.data?.draftCreated ? 'default' : 'destructive',
             })
             reset({ jobDescription: '' })
-            router.push('/dashboard/job-posts')
+            // Land on the review step, where the draft is edited and sent.
+            router.push(result.data?.jobId ? `/dashboard/job-posts/${result.data.jobId}` : '/dashboard/job-posts')
         })
     }
 

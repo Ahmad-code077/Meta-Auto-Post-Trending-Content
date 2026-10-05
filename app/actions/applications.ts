@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { z } from 'zod';
 import { requireUser } from '@/lib/supabase/server';
 import { createApplicationDraft, createFollowUpDraft, ensureJobAnalysis, getOwnedJob, HarnessError } from '@/lib/harness/application';
 import { sendApplicationEmail } from '@/lib/mail/send';
@@ -10,6 +11,21 @@ import type { Job } from '@/lib/types/jobs';
 
 const JOB_DESCRIPTION_MIN = 50;
 const JOB_DESCRIPTION_MAX = 5000;
+const DRAFT_BODY_MAX = 8000;
+
+const draftEditSchema = z.object({
+    subject: z
+        .string()
+        .trim()
+        .min(1, 'Subject is required')
+        .max(120, 'Subject must be 120 characters or fewer')
+        .refine((v) => !/[\r\n]/.test(v), 'Subject must be one line'),
+    body: z
+        .string()
+        .trim()
+        .min(1, 'The email body is empty')
+        .max(DRAFT_BODY_MAX, `The email must be ${DRAFT_BODY_MAX} characters or fewer`),
+});
 
 function failure(error: unknown, fallback: string): { success: false; message: string } {
     if (error instanceof HarnessError) return { success: false, message: error.message };
@@ -118,5 +134,54 @@ export async function reanalyzeJob(jobId: string): Promise<ActionResult<Job>> {
         return { success: true, data: await getOwnedJob(supabase, user.id, jobId) };
     } catch (error) {
         return failure(error, 'The job could not be analyzed');
+    }
+}
+
+// Saves the user's edits to an unsent draft. Only drafts that are not being sent can change.
+// The generation record is kept, and gets an edited_at marker so the audit trail shows the text was changed by hand.
+export async function updateApplicationDraft(
+    emailId: string,
+    input: { subject: string; body: string }
+): Promise<ActionResult<ApplicationEmail>> {
+    const parsed = draftEditSchema.safeParse(input);
+    if (!parsed.success) {
+        return { success: false, message: parsed.error.issues[0]?.message ?? 'Check the draft' };
+    }
+
+    try {
+        const { supabase, user } = await requireUser();
+
+        const { data: current, error } = await supabase
+            .from('application_emails')
+            .select('id, job_id, generation')
+            .eq('id', emailId)
+            .eq('user_id', user.id)
+            .in('status', ['draft', 'failed'])
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!current) return { success: false, message: 'This draft can no longer be edited' };
+
+        const generation = current.generation ? { ...current.generation, edited_at: new Date().toISOString() } : null;
+
+        const { data, error: updateError } = await supabase
+            .from('application_emails')
+            .update({
+                subject: parsed.data.subject,
+                body: parsed.data.body,
+                generation,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', emailId)
+            .eq('user_id', user.id)
+            .select('*')
+            .single();
+
+        if (updateError || !data) throw updateError ?? new Error('Update failed');
+
+        revalidatePath('/dashboard/job-posts');
+        return { success: true, data: data as ApplicationEmail };
+    } catch (error) {
+        return failure(error, 'The draft could not be saved');
     }
 }
