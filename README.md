@@ -14,9 +14,9 @@ Both products share authentication, the Supabase client, the UI primitives and t
 | Post moderation: list, filter, paginate, generate image, publish, delete old posts | Built (n8n) |
 | Job applications: list, filter, details | Built |
 | Job intake: paste posting, analyze, create draft | Built |
-| Draft review and SMTP send with resume attachment | Built (server actions) |
+| Draft review, editing and SMTP send with the current resume attached | Built |
 | Follow-up drafts and sending | Built (server actions). No UI yet |
-| Personal profile and resume upload | Data model and server actions built. No UI yet |
+| Personal profile: details, skills, experience, projects, resume (`/dashboard/profile`) | Built |
 | Approve and reject posts | Server actions exist. No UI yet |
 | Hashtag management, auto-replies, resume parsing | Not in this repo |
 
@@ -31,6 +31,8 @@ npm run dev                  # http://localhost:3000
 Other scripts: `npm run build`, `npm run start`, `npm run lint`.
 
 Apply the database migration once: `supabase db push`, or run `supabase/migrations/*.sql` in the SQL editor.
+
+Run the deterministic tests (no network, no model calls): `npm test`.
 
 Access is admin-only. Signup is disabled, so create the admin user in the Supabase dashboard.
 
@@ -136,6 +138,12 @@ A failed SMTP attempt sets the row to `failed` with the error, and it can be ret
 - **Optimistic updates** apply to user-visible status changes: generate, publish, and send email.
 - **Irreversible actions** (publish, send email, delete old posts) go through `ConfirmDialog`.
 - **Pages never mix products.** Meta lives under `/dashboard`, applications under `/dashboard/job-posts`.
+
+## Using the system end to end
+
+1. **Profile** (`/dashboard/profile`): details and links, skills, experience, projects, and the resume. The profile is the only source the harness uses.
+2. **New application** (`/dashboard/job-posts/new`): paste the job posting. It is analyzed, matched against the profile, and a draft is written.
+3. **Review** (`/dashboard/job-posts/<id>`): edit the subject and body, see which profile entries the draft is based on, regenerate, or send. Sending requires saved edits, and attaches the resume that is current at send time.
 
 ## Data model
 
