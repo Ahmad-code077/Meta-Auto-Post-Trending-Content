@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Briefcase, Loader2, Plus } from 'lucide-react';
 import Link from 'next/link';
-import { sendJobEmail } from '@/app/actions/jobs';
+import { sendJobEmail } from '@/app/actions/applications';
 import { JobFilterBar } from '@/components/jobs/filter-bar';
 import { JobDetailsDialog } from '@/components/jobs/job-details-dialog';
 import { JobsTable } from '@/components/jobs/jobs-table';
