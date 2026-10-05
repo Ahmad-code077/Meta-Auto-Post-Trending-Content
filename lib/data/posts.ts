@@ -1,6 +1,30 @@
 import { createClient } from '@/lib/supabase/server'
 import { Post, PostsResponse, Filters, PostStatus } from '@/lib/types/posts'
 
+const RETENTION_MS = 24 * 60 * 60 * 1000
+
+// Count of posts that deleteOldPosts would remove.
+export async function getDeletablePostsCount(): Promise<number> {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return 0
+
+    const cutoff = new Date(Date.now() - RETENTION_MS).toISOString()
+    const { count, error } = await supabase
+        .from('posts')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .lt('created_at', cutoff)
+        .neq('status', 'published')
+
+    if (error) {
+        console.error('Error counting deletable posts:', error)
+        return 0
+    }
+
+    return count ?? 0
+}
+
 export async function getPosts(filters: Filters = {}): Promise<PostsResponse> {
     const supabase = await createClient()
     const { data: { user }, error: authError } = await supabase.auth.getUser()

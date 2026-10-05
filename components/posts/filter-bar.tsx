@@ -1,210 +1,150 @@
 'use client'
 
-import { Filters, FilterStatus } from '@/lib/types/posts'
-import { Search, Filter, Calendar as CalendarIcon } from 'lucide-react'
-import { useState, useCallback } from 'react'
-import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Calendar } from '@/components/ui/calendar'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Label } from '@/components/ui/label'
-import { Card, CardContent } from '@/components/ui/card'
-import { cn } from '@/lib/utils'
+import { useCallback, useEffect, useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { format } from 'date-fns'
+import { CalendarDays, Search, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Calendar } from '@/components/ui/calendar'
+import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { cn } from '@/lib/utils'
 
-interface FilterBarProps {
-    initialFilters?: Filters
-}
+// All filter state lives in the URL, so views can be shared and back/forward works.
+// The search box keeps local state and writes to the URL after a short pause.
 
-export default function FilterBar({ initialFilters }: FilterBarProps) {
+const STATUS_OPTIONS = [
+    { value: 'all', label: 'All statuses' },
+    { value: 'pending', label: 'Pending' },
+    { value: 'approved', label: 'Approved' },
+    { value: 'rejected', label: 'Rejected' },
+    { value: 'published', label: 'Published' },
+]
+
+export default function FilterBar() {
     const router = useRouter()
     const pathname = usePathname()
     const searchParams = useSearchParams()
 
-    const [filters, setFilters] = useState<Filters>(initialFilters || {})
-    const [showAdvanced, setShowAdvanced] = useState(false)
-    const [dateFrom, setDateFrom] = useState<Date | undefined>(
-        initialFilters?.dateFrom ? new Date(initialFilters.dateFrom) : undefined
-    )
-    const [dateTo, setDateTo] = useState<Date | undefined>(
-        initialFilters?.dateTo ? new Date(initialFilters.dateTo) : undefined
-    )
+    const status = searchParams.get('status') ?? 'all'
+    const urlSearch = searchParams.get('search') ?? ''
+    const dateFrom = searchParams.get('dateFrom')
+    const dateTo = searchParams.get('dateTo')
 
-    const updateURL = useCallback((newFilters: Filters) => {
+    const [search, setSearch] = useState(urlSearch)
+
+    const updateParams = useCallback((changes: Record<string, string | null>) => {
         const params = new URLSearchParams(searchParams.toString())
-
-        if (newFilters.status && newFilters.status !== 'all') {
-            params.set('status', newFilters.status)
-        } else {
-            params.delete('status')
+        for (const [key, value] of Object.entries(changes)) {
+            if (value) params.set(key, value)
+            else params.delete(key)
         }
-
-        if (newFilters.search) {
-            params.set('search', newFilters.search)
-        } else {
-            params.delete('search')
-        }
-
-        if (newFilters.dateFrom) {
-            params.set('dateFrom', newFilters.dateFrom)
-        } else {
-            params.delete('dateFrom')
-        }
-
-        if (newFilters.dateTo) {
-            params.set('dateTo', newFilters.dateTo)
-        } else {
-            params.delete('dateTo')
-        }
-
         params.delete('page')
-
-        router.push(`${pathname}?${params.toString()}`)
-        router.refresh()
+        const query = params.toString()
+        router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false })
     }, [router, pathname, searchParams])
 
-    const handleChange = useCallback((key: keyof Filters, value: string | number | Date | undefined) => {
-        let stringValue: string | undefined
+    useEffect(() => {
+        if (search === urlSearch) return
+        const timer = setTimeout(() => {
+            updateParams({ search: search.trim() || null })
+        }, 300)
+        return () => clearTimeout(timer)
+    }, [search, urlSearch, updateParams])
 
-        if (value instanceof Date) {
-            stringValue = format(value, 'yyyy-MM-dd')
-        } else if (typeof value === 'string') {
-            stringValue = value
-        } else if (typeof value === 'number') {
-            stringValue = value.toString()
-        }
+    const hasFilters = status !== 'all' || urlSearch !== '' || dateFrom !== null || dateTo !== null
 
-        const newFilters = {
-            ...filters,
-            [key]: stringValue
-        }
-
-        setFilters(newFilters)
-        updateURL(newFilters)
-    }, [filters, updateURL])
-
-    const handleDateFromChange = (date: Date | undefined) => {
-        setDateFrom(date)
-        handleChange('dateFrom', date)
+    const clearAll = () => {
+        setSearch('')
+        router.replace(pathname, { scroll: false })
     }
-
-    const handleDateToChange = (date: Date | undefined) => {
-        setDateTo(date)
-        handleChange('dateTo', date)
-    }
-
-    const statusOptions: { value: FilterStatus; label: string }[] = [
-        { value: 'all', label: 'All Status' },
-        { value: 'pending', label: 'Pending' },
-        { value: 'approved', label: 'Approved' },
-        { value: 'rejected', label: 'Rejected' },
-        { value: 'published', label: 'Published' }
-    ]
 
     return (
-        <Card>
-            <CardContent className="pt-6">
-                <div className="space-y-4">
-                    <div className="flex flex-col md:flex-row gap-4">
-                        <div className="flex-1 relative">
-                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                            <Input
-                                type="text"
-                                placeholder="Search posts by title or content..."
-                                value={filters.search || ''}
-                                onChange={(e) => handleChange('search', e.target.value || undefined)}
-                                className="pl-10"
-                            />
-                        </div>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                <Input
+                    type="search"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search by title or content"
+                    aria-label="Search posts"
+                    className="pl-9"
+                />
+            </div>
 
-                        <div className="flex gap-2">
-                            <Select
-                                value={filters.status || 'all'}
-                                onValueChange={(value) => handleChange('status', value as FilterStatus)}
-                            >
-                                <SelectTrigger className="w-[180px]">
-                                    <SelectValue placeholder="Filter by status" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {statusOptions.map((option) => (
-                                        <SelectItem key={option.value} value={option.value}>
-                                            {option.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+            <div className="flex flex-wrap items-center gap-2">
+                <Select value={status} onValueChange={(value) => updateParams({ status: value === 'all' ? null : value })}>
+                    <SelectTrigger className="w-[160px]" aria-label="Filter by status">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {STATUS_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
 
-                            <Button
-                                onClick={() => setShowAdvanced(!showAdvanced)}
-                                variant="outline"
-                                size="icon"
-                                type="button"
-                            >
-                                <Filter className="w-4 h-4" />
-                            </Button>
-                        </div>
-                    </div>
+                <DatePickerField
+                    label="From"
+                    value={dateFrom}
+                    onChange={(value) => updateParams({ dateFrom: value })}
+                />
+                <DatePickerField
+                    label="To"
+                    value={dateTo}
+                    onChange={(value) => updateParams({ dateTo: value })}
+                />
 
-                    {showAdvanced && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 border border-border rounded-lg bg-muted/30">
-                            <div className="space-y-3">
-                                <Label htmlFor="date-from">From Date</Label>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            className={cn(
-                                                "w-full justify-start text-left font-normal",
-                                                !dateFrom && "text-muted-foreground"
-                                            )}
-                                        >
-                                            <CalendarIcon className="mr-2 h-4 w-4" />
-                                            {dateFrom ? format(dateFrom, "PPP") : "Select start date"}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0">
-                                        <Calendar
-                                            mode="single"
-                                            selected={dateFrom}
-                                            onSelect={handleDateFromChange}
-                                            initialFocus
-                                        />
-                                    </PopoverContent>
-                                </Popover>
-                            </div>
+                {hasFilters && (
+                    <Button variant="ghost" size="sm" onClick={clearAll}>
+                        <X />
+                        Clear
+                    </Button>
+                )}
+            </div>
+        </div>
+    )
+}
 
-                            <div className="space-y-3">
-                                <Label htmlFor="date-to">To Date</Label>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            className={cn(
-                                                "w-full justify-start text-left font-normal",
-                                                !dateTo && "text-muted-foreground"
-                                            )}
-                                        >
-                                            <CalendarIcon className="mr-2 h-4 w-4" />
-                                            {dateTo ? format(dateTo, "PPP") : "Select end date"}
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0">
-                                        <Calendar
-                                            mode="single"
-                                            selected={dateTo}
-                                            onSelect={handleDateToChange}
-                                            initialFocus
-                                            disabled={(date) => dateFrom ? date < dateFrom : false}
-                                        />
-                                    </PopoverContent>
-                                </Popover>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </CardContent>
-        </Card>
+function DatePickerField({
+    label,
+    value,
+    onChange,
+}: {
+    label: string
+    value: string | null
+    onChange: (value: string | null) => void
+}) {
+    const [open, setOpen] = useState(false)
+    const selected = value ? new Date(`${value}T00:00:00`) : undefined
+
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <Button
+                    variant="outline"
+                    size="default"
+                    className={cn('justify-start font-normal', !value && 'text-muted-foreground')}
+                    aria-label={`${label} date`}
+                >
+                    <CalendarDays />
+                    {value ? `${label} ${format(selected!, 'MMM d, yyyy')}` : `${label} date`}
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                    mode="single"
+                    selected={selected}
+                    onSelect={(date) => {
+                        onChange(date ? format(date, 'yyyy-MM-dd') : null)
+                        setOpen(false)
+                    }}
+                />
+            </PopoverContent>
+        </Popover>
     )
 }

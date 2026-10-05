@@ -1,6 +1,19 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
+// Use in every server action that reads or writes user data.
+// The proxy only guards page navigations, so each action re-checks the session.
+export async function requireUser() {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    if (!user) {
+        throw new Error('Unauthorized')
+    }
+
+    return { supabase, user }
+}
+
 export async function createClient() {
     const cookieStore = await cookies()
 
