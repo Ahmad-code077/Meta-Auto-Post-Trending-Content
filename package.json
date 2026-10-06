@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsc -p tests/tsconfig.json && node node_modules/.cache/harness-tests/tests/harness.test.js"
+    "test": "tsc -p tests/tsconfig.json && for f in node_modules/.cache/harness-tests/tests/*.test.js; do node -r ./tests/alias-register.cjs \"$f\" || exit 1; done"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
