@@ -132,6 +132,8 @@ Follow-ups use a separate pipeline. They receive the job, the previous email, an
 3. SMTP accepts the message. Only then is the row set to `sent`, with the SMTP Message-ID.
 4. The job advances: `sent` with a 7-day follow-up date, or `follow_up_1` / `follow_up_2`.
 
+The message is plain text only: one `text` part, no HTML. The From address is the authenticated SMTP account (`SMTP_USER`), with the display name from `SMTP_FROM`. The Message-ID uses the same domain. See [Sending domain](#sending-domain-spf-dkim-dmarc).
+
 A failed SMTP attempt sets the row to `failed` with the error, and it can be retried. If SMTP accepted the message but the database update then fails, the row stays `sending` and the error log includes the Message-ID, so nobody resends it blindly.
 
 ### Conventions
@@ -142,13 +144,38 @@ A failed SMTP attempt sets the row to `failed` with the error, and it can be ret
 - **Irreversible actions** (publish, send email, delete old posts) go through `ConfirmDialog`.
 - **Pages never mix products.** Meta lives under `/dashboard`, applications under `/dashboard/job-posts`.
 
+## Sending domain (SPF, DKIM, DMARC)
+
+The repo does not change DNS. These are the records the sending domain needs, set at the DNS provider.
+
+- **The From address is the SMTP account.** `SMTP_USER` is the sender and `SMTP_FROM` gives the display name. Gmail and most providers rewrite a From that does not match the authenticated account, and a From from another domain fails DMARC alignment. The Message-ID uses the same domain.
+- **SPF.** A TXT record on the domain lists the servers allowed to send for it, for example `v=spf1 include:<provider> ~all`. Use exactly one SPF record per domain.
+- **DKIM.** The provider gives a public key to publish as a TXT (or CNAME) record under a selector, such as `selector._domainkey.<domain>`. Messages are signed with the matching private key.
+- **DMARC.** A TXT record at `_dmarc.<domain>`, for example `v=DMARC1; p=none; rua=mailto:<reports address>`. Start with `p=none` to see reports, then move to `quarantine` and `reject` once SPF and DKIM pass for every sender.
+- **Gmail accounts (`@gmail.com`).** Google publishes SPF, DKIM and DMARC for these domains, and you cannot add your own DMARC record there. The From is the Gmail account itself, so alignment holds without changes.
+- **Check before a campaign.** Send one message to a test inbox and check the headers for `spf=pass`, `dkim=pass` and `dmarc=pass`.
+
 ## Follow-up scheduler
 
 An application that is sent gets a follow-up scheduled 7 days later. The follow-up is an `application_emails` row with `kind = 'follow_up'`, `follow_up_number = 1`, and `status = 'scheduled'`. Its text is written when it is processed, not when it is scheduled, so the content reflects the job and the earlier email as they are then.
 
+### When follow-ups are sent
+
+Follow-ups go out on Tuesday, Wednesday or Thursday, between 9:00 and 11:00 AM in `FOLLOW_UP_TIMEZONE` (default `Asia/Karachi`). Mondays, Fridays and weekends are skipped, because inboxes are busiest on Monday and quiet on Friday. An automatic follow-up is due 7 days after the application is sent. Its due time is then placed at a random point inside the window: between 9:00 and 10:59 AM on the first Tuesday-to-Thursday day that falls on or after that date (`jitteredSendSlot` in `lib/followups/schedule.ts`). The random point is picked once, when the follow-up is scheduled, so two follow-ups do not share a due time. Manual reschedules outside the window are refused with the rule in the message.
+
+Jitter is applied by the scheduler at run time too:
+
+- **Window check before each send.** A run never sends outside the window. If the window has closed, or the run has already sent `MAX_SENDS_PER_RUN` (8), the follow-up moves to a jittered slot in the next window without being claimed. Its attempt count does not change.
+- **Pauses between sends.** Each send after the first waits a random 5 to 20 seconds, so one run does not send in a steady rhythm.
+- **Unchanged rules.** The claim, the fenced writes, the retry policy and the cancellation checks run exactly as before. A moved follow-up is not an attempt.
+
+The cron runs at 04:00 UTC, which is 09:00 in Karachi. If you change `FOLLOW_UP_TIMEZONE`, change the cron time in `vercel.json` by the same offset.
+
 ### Trigger
 
-`vercel.json` runs `GET /api/cron/follow-ups` once a day at 09:00 UTC (`0 9 * * *`). That schedule works on every Vercel plan. Hourly runs need a plan that allows them. To run hourly, change the schedule to `0 * * * *`. Retries and due times depend on the frequency: with a daily trigger, a retry runs on the next day's trigger.
+`vercel.json` runs `GET /api/cron/follow-ups` once a day at 04:00 UTC (`0 4 * * *`), which is 09:00 in Karachi. That schedule works on every Vercel plan. Retries and due times depend on the frequency: with a daily trigger, a retry runs on the next day's trigger.
+
+**The daily trigger limits the jitter.** A daily run only sends follow-ups that are due at the moment it runs. Follow-ups due later in the window wait for the next run, which is the next day. On a Hobby plan that means most sends happen at about 09:00 Karachi, and the jitter only moves the due date, not the send time. To spread sends across the window, run the scheduler more often during the window, for example hourly on Tuesday to Thursday (`0 4-6 * * 2-4`, which needs a plan that allows more than one run per day). Test this before relying on it.
 
 The route only authenticates and reports. `lib/followups/scheduler.ts` decides what is due and what to do with it.
 
