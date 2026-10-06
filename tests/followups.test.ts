@@ -99,6 +99,14 @@ class MemoryStore implements FollowUpStore {
         return this.fence(row.id, token, { status: 'cancelled', due_at: null, claim_token: null, error: message, error_code: code })
     }
 
+    // Mirrors the conditional UPDATE: only a scheduled row still due at the time we read may move.
+    async moveDue(row: FollowUpRow, dueAt: Date) {
+        const r = this.rows.get(row.id)
+        if (!r || r.status !== 'scheduled' || r.due_at !== row.due_at) return false
+        r.due_at = dueAt.toISOString()
+        return true
+    }
+
     async failStale(row: FollowUpRow) {
         const r = this.rows.get(row.id)
         if (!r || r.status !== 'processing' || r.claim_token !== row.claim_token) return false
@@ -145,10 +153,17 @@ interface FakeOptions {
 }
 
 function fakeDeps(store: MemoryStore, clock: Clock, options: FakeOptions = {}) {
-    const calls = { generate: 0, transmit: 0, afterSent: 0 }
+    const calls = { generate: 0, transmit: 0, afterSent: 0, pauses: [] as number[] }
     let tokens = 0
     const deps: SchedulerDeps = {
         store,
+        // UTC keeps the send window at 09:00-11:00 UTC, which is where the test clock starts.
+        zone: 'UTC',
+        // A fixed random source makes the jitter and pacing deterministic. The jitter tests use their own values.
+        random: () => 0,
+        pause: async (ms) => {
+            calls.pauses.push(ms)
+        },
         now: clock.now,
         newToken: () => `token-${++tokens}`,
         async generate() {
@@ -194,8 +209,8 @@ test('policy: a transient SMTP connection error is retried, an ambiguous one is 
     assert.equal(classifyFailure(smtpError('EENVELOPE'), 'transmit').retry, false)
 })
 
-test('policy: generation failures are retryable, permanent errors never are', () => {
-    assert.equal(classifyFailure(new Error('model timeout'), 'generate').retry, true)
+test('policy: a generation failure is never retried automatically, and nothing permanent is ever retried', () => {
+    assert.equal(classifyFailure(new Error('model timeout'), 'generate').retry, false)
     assert.equal(classifyFailure(new PermanentFollowUpError('NO_PREVIOUS_SENT', 'none'), 'generate').retry, false)
 })
 
@@ -223,7 +238,8 @@ test('policy: follow-up 1 waits for "sent", follow-up 2 waits for "follow_up_1"'
     assert.equal(awaitingReply('replied', 1), false)
     assert.equal(awaitingReply('follow_up_1', 2), true)
     assert.equal(awaitingReply('sent', 2), false)
-    assert.equal(followUpDueAt(T0).getTime() - T0.getTime(), 7 * 86_400_000)
+    // The gap is 7 days, then moved into the Tuesday-to-Thursday window. Covered in tests/schedule.test.ts.
+    assert.ok(followUpDueAt(T0).getTime() >= T0.getTime() + 7 * 86_400_000)
 })
 
 // ---------------------------------------------------------------------------
@@ -353,21 +369,22 @@ test('an ambiguous SMTP timeout is failed, not retried, so the email cannot be s
     assert.equal(calls.transmit, 1)
 })
 
-test('generation failures retry until the attempt limit, then fail', async () => {
+test('a generation failure fails the follow-up at once, and later runs never generate it again', async () => {
     const store = new MemoryStore([row()], [job()])
     const clock = new Clock(T0)
     const { deps, calls } = fakeDeps(store, clock, { generate: async () => { throw new Error('model unavailable') } })
 
-    await runFollowUpScheduler(deps)
+    const first = await runFollowUpScheduler(deps)
     clock.advance(15)
     await runFollowUpScheduler(deps)
     clock.advance(60)
-    const last = await runFollowUpScheduler(deps)
+    await runFollowUpScheduler(deps)
 
     const r = store.get('fu-1')
     assert.equal(r.status, 'failed')
-    assert.equal(r.attempts, MAX_ATTEMPTS)
-    assert.equal(last.failed, 1)
+    assert.equal(r.attempts, 1)
+    assert.equal(first.failed, 1)
+    assert.equal(calls.generate, 1, 'the generation ran once across all runs')
     assert.equal(calls.transmit, 0, 'nothing is sent when generation fails')
 })
 
@@ -390,7 +407,7 @@ test('a follow-up for a job that has been replied to is cancelled and never sent
     const summary = await runFollowUpScheduler(deps)
 
     assert.equal(store.get('fu-1').status, 'cancelled')
-    assert.equal(store.get('fu-1').error_code, 'JOB_NOT_AWAITING_REPLY')
+    assert.equal(store.get('fu-1').error_code, 'RECIPIENT_REPLIED')
     assert.equal(calls.transmit, 0)
     assert.equal(summary.cancelled, 1)
 })
@@ -519,4 +536,160 @@ test('failed attempts are logged at warn or error with the error code', async ()
     const retry = logs.lines.find((l) => l.record.event === 'followup.retry_scheduled')!
     assert.equal(retry.level, 'warn')
     assert.equal(retry.record.attempt, 1)
+})
+
+// ---------------------------------------------------------------------------
+// Replies stop follow-ups
+// ---------------------------------------------------------------------------
+
+test('a reply recorded before the claim stops the follow-up before any text is written', async () => {
+    const store = new MemoryStore([row()], [job({ status: 'replied' })])
+    const clock = new Clock(T0)
+    const { deps, calls } = fakeDeps(store, clock)
+
+    await runFollowUpScheduler(deps)
+
+    assert.equal(calls.generate, 0, 'no AI generation')
+    assert.equal(calls.transmit, 0, 'no SMTP send')
+    assert.equal(store.get('fu-1').status, 'cancelled')
+    assert.equal(store.get('fu-1').error_code, 'RECIPIENT_REPLIED')
+})
+
+test('a reply recorded while the text is being written stops the send that would follow', async () => {
+    const store = new MemoryStore([row()], [job({ status: 'sent' })])
+    const clock = new Clock(T0)
+    const { deps, calls } = fakeDeps(store, clock, {
+        generate: async () => {
+            // The inbox sync records the reply while this follow-up is being written.
+            store.jobs.set('job-1', job({ status: 'replied' }))
+            return { subject: 'Following up', body: 'Following up on the role.', generation: {} }
+        },
+    })
+
+    const summary = await runFollowUpScheduler(deps)
+
+    assert.equal(calls.generate, 1)
+    assert.equal(calls.transmit, 0, 'the message never leaves')
+    assert.equal(store.get('fu-1').status, 'cancelled')
+    assert.equal(store.get('fu-1').error_code, 'RECIPIENT_REPLIED')
+    assert.equal(summary.sent, 0)
+})
+
+test('a follow-up that was already sent is not changed by a later reply', async () => {
+    const store = new MemoryStore([row()], [job({ status: 'sent' })])
+    const clock = new Clock(T0)
+    const { deps } = fakeDeps(store, clock)
+    await runFollowUpScheduler(deps)
+
+    store.jobs.set('job-1', job({ status: 'replied' }))
+    clock.advance(24 * 60)
+    await runFollowUpScheduler(deps)
+
+    assert.equal(store.get('fu-1').status, 'sent')
+})
+
+test('two runs racing with a reply never send after the reply is recorded', async () => {
+    const store = new MemoryStore([row()], [job({ status: 'sent' })])
+    const clock = new Clock(T0)
+    const { deps, calls } = fakeDeps(store, clock)
+    const slowGenerate = deps.generate
+    deps.generate = async (r, j) => {
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        return slowGenerate(r, j)
+    }
+
+    const runs = Promise.all([runFollowUpScheduler(deps), runFollowUpScheduler(deps)])
+    store.jobs.set('job-1', job({ status: 'replied' }))
+    await runs
+
+    assert.equal(calls.transmit, 0)
+    assert.equal(store.get('fu-1').status, 'cancelled')
+})
+
+// ---------------------------------------------------------------------------
+// Send window, pacing and the per-run cap
+// ---------------------------------------------------------------------------
+
+test('outside the window nothing is sent: the follow-up moves to the next jittered slot, unclaimed', async () => {
+    // Monday 2026-10-12 12:00 UTC is outside the window.
+    const store = new MemoryStore([row()], [job()])
+    const clock = new Clock(new Date('2026-10-12T12:00:00.000Z'))
+    const { deps, calls } = fakeDeps(store, clock)
+
+    const summary = await runFollowUpScheduler(deps)
+
+    assert.equal(calls.transmit, 0)
+    assert.equal(calls.generate, 0)
+    assert.equal(summary.rescheduled, 1)
+    assert.equal(summary.claimed, 0)
+    assert.equal(store.get('fu-1').status, 'scheduled')
+    assert.equal(store.get('fu-1').attempts, 0, 'a move does not use up an attempt')
+    assert.equal(store.get('fu-1').due_at, '2026-10-13T09:00:00.000Z', 'Tuesday, first slot of the window (random = 0)')
+})
+
+test('a window that closes during the run stops the rest of the run, and the rest move to the next window', async () => {
+    const store = new MemoryStore([row({ id: 'fu-1' }), row({ id: 'fu-2' })], [job()])
+    const clock = new Clock(T0)
+    const { deps, calls } = fakeDeps(store, clock)
+    // The pause between sends takes two hours, so the second send would fall after 11:00.
+    deps.pause = async () => clock.advance(120)
+
+    const summary = await runFollowUpScheduler(deps)
+
+    assert.equal(calls.transmit, 1)
+    assert.equal(summary.sent, 1)
+    assert.equal(summary.rescheduled, 1)
+    assert.equal(store.get('fu-1').status, 'sent')
+    assert.equal(store.get('fu-2').status, 'scheduled')
+    assert.equal(store.get('fu-2').attempts, 0)
+    assert.equal(store.get('fu-2').due_at, '2026-10-14T09:00:00.000Z', 'Wednesday, first slot of the next window')
+})
+
+test('a run sends at most MAX_SENDS_PER_RUN follow-ups; the rest move and are not sent in this run', async () => {
+    const rows = Array.from({ length: 10 }, (_, i) => row({ id: `fu-${i}`, job_id: 'job-1' }))
+    const store = new MemoryStore(rows, [job()])
+    const clock = new Clock(T0)
+    const { deps, calls } = fakeDeps(store, clock)
+
+    const summary = await runFollowUpScheduler(deps, 20)
+
+    assert.equal(calls.transmit, 8)
+    assert.equal(summary.sent, 8)
+    assert.equal(summary.rescheduled, 2)
+    const sent = rows.filter((r) => store.get(r.id).status === 'sent')
+    const moved = rows.filter((r) => store.get(r.id).status === 'scheduled')
+    assert.equal(sent.length, 8)
+    assert.equal(moved.length, 2)
+    for (const r of moved) assert.equal(store.get(r.id).attempts, 0)
+})
+
+test('pauses between sends are random within the range, and there is no pause before the first send', async () => {
+    const rows = [row({ id: 'fu-1' }), row({ id: 'fu-2' }), row({ id: 'fu-3' })]
+    const store = new MemoryStore(rows, [job()])
+    const clock = new Clock(T0)
+    const { deps, calls } = fakeDeps(store, clock)
+    let seed = 99
+    deps.random = () => {
+        seed = (seed * 16807) % 2147483647
+        return seed / 2147483647
+    }
+
+    await runFollowUpScheduler(deps)
+
+    assert.equal(calls.pauses.length, 2, 'one pause before each send after the first')
+    for (const ms of calls.pauses) assert.ok(ms >= 5_000 && ms < 20_000, String(ms))
+    assert.equal(calls.transmit, 3)
+})
+
+test('the window is checked with the configured zone: the same instant is inside in one zone and outside in another', async () => {
+    // 2026-10-13 09:00 UTC is 14:00 Karachi, so it is outside the window there.
+    const store = new MemoryStore([row()], [job()])
+    const clock = new Clock(T0)
+    const { deps, calls } = fakeDeps(store, clock)
+    deps.zone = 'Asia/Karachi'
+
+    const summary = await runFollowUpScheduler(deps)
+
+    assert.equal(calls.transmit, 0)
+    assert.equal(summary.rescheduled, 1)
 })

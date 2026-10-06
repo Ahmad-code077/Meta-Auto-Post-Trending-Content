@@ -6,7 +6,10 @@ import nodemailer, { type Transporter } from 'nodemailer';
 //   SMTP_SECURE        "true" for implicit TLS (port 465). Default false
 //   SMTP_REQUIRE_TLS   "true" refuses to send unless the connection is encrypted. Default true
 //   SMTP_USER / SMTP_PASS
-//   SMTP_FROM          sender address, optionally "Name <address@example.com>"
+//   SMTP_FROM          display name (and address, if SMTP_USER is not an address): "Name <address@example.com>"
+//
+// The From address is always the authenticated SMTP account. Mail servers such as Gmail rewrite any other From,
+// and a From that does not match the sending account fails SPF/DMARC alignment. See README.md, "Sending domain".
 
 let transporter: Transporter | null = null;
 
@@ -18,6 +21,25 @@ export interface SmtpSettings {
     user: string;
     pass: string;
     from: string;
+}
+
+export interface Sender {
+    name: string | null;
+    address: string;
+}
+
+// The From header is the authenticated account. SMTP_FROM supplies only the display name, unless SMTP_USER is not an
+// address (some providers use a login name), in which case the address in SMTP_FROM is used.
+export function resolveSender(settings: Pick<SmtpSettings, 'user' | 'from'>): Sender {
+    const match = settings.from.match(/^\s*(?:"?([^"<]*?)"?\s*)?<([^<>\s]+)>\s*$/) ?? settings.from.match(/^\s*()([^<>\s]+)\s*$/);
+    const name = match?.[1]?.trim() || null;
+    const fromAddress = match?.[2] ?? null;
+
+    const address = settings.user.includes('@') ? settings.user : fromAddress;
+    if (!address || !address.includes('@')) {
+        throw new Error('SMTP_USER or SMTP_FROM must contain an email address');
+    }
+    return { name, address };
 }
 
 export function readSmtpSettings(env: NodeJS.ProcessEnv = process.env): SmtpSettings {
@@ -69,11 +91,11 @@ export interface OutgoingMessage {
 
 // Resolves with the SMTP server's message id only when the server accepted the recipient.
 // Callers must not mark an email as sent before this resolves.
-export async function sendSmtpMessage(message: OutgoingMessage): Promise<string> {
-    const settings = readSmtpSettings();
-
-    const info = await getTransporter().sendMail({
-        from: settings.from,
+// Builds what nodemailer receives. Plain text only: there is no html part, so no markup is sent.
+export function buildSmtpMessage(settings: SmtpSettings, message: OutgoingMessage) {
+    const sender = resolveSender(settings);
+    return {
+        from: { name: sender.name ?? '', address: sender.address },
         to: message.to,
         subject: message.subject,
         text: message.text,
@@ -85,7 +107,13 @@ export async function sendSmtpMessage(message: OutgoingMessage): Promise<string>
             content: a.content,
             contentType: a.contentType,
         })),
-    });
+    };
+}
+
+export async function sendSmtpMessage(message: OutgoingMessage): Promise<string> {
+    const settings = readSmtpSettings();
+
+    const info = await getTransporter().sendMail(buildSmtpMessage(settings, message));
 
     const accepted = info.accepted.map(String);
     if (!accepted.includes(message.to)) {

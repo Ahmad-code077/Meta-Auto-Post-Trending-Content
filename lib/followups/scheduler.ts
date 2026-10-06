@@ -11,6 +11,7 @@
 import { logger, errorFields } from '@/lib/log/logger';
 import type { Job } from '@/lib/types/jobs';
 import { awaitingReply, classifyFailure, nextAttemptAt, type FailureDecision } from './policy';
+import { isSendWindow, jitteredSendSlot, MAX_SENDS_PER_RUN, pacingMs } from './schedule';
 
 export interface FollowUpRow {
     id: string;
@@ -47,11 +48,19 @@ export interface FollowUpStore {
     release(row: FollowUpRow, token: string, dueAt: Date, failure: FailureDecision): Promise<boolean>;
     fail(row: FollowUpRow, token: string, failure: FailureDecision): Promise<boolean>;
     cancel(row: FollowUpRow, token: string, code: string, message: string): Promise<boolean>;
+    // Moves a scheduled, unclaimed follow-up to a new due time. Does not change its attempt count.
+    moveDue(row: FollowUpRow, dueAt: Date): Promise<boolean>;
     failStale(row: FollowUpRow, now: Date): Promise<boolean>;
 }
 
 export interface SchedulerDeps {
     store: FollowUpStore;
+    // Timezone of the send window. Checked before every send.
+    zone: string;
+    // Random source for send offsets and pacing. Injected so tests are deterministic.
+    random(): number;
+    // Waits between sends in one run. Injected so tests do not sleep.
+    pause(ms: number): Promise<void>;
     generate(row: FollowUpRow, job: Job): Promise<GeneratedFollowUp>;
     transmit(row: FollowUpRow): Promise<string>;
     afterSent(row: FollowUpRow, job: Job, sentAt: Date, messageId: string): Promise<void>;
@@ -66,6 +75,7 @@ export interface SchedulerSummary {
     retry_scheduled: number;
     failed: number;
     cancelled: number;
+    rescheduled: number;
     claims_lost: number;
     stale_recovered: number;
     duration_ms: number;
@@ -74,7 +84,7 @@ export interface SchedulerSummary {
 export async function runFollowUpScheduler(deps: SchedulerDeps, limit = 20): Promise<SchedulerSummary> {
     const started = Date.now();
     const summary: SchedulerSummary = {
-        due: 0, claimed: 0, sent: 0, retry_scheduled: 0, failed: 0, cancelled: 0, claims_lost: 0, stale_recovered: 0, duration_ms: 0,
+        due: 0, claimed: 0, sent: 0, retry_scheduled: 0, failed: 0, cancelled: 0, rescheduled: 0, claims_lost: 0, stale_recovered: 0, duration_ms: 0,
     };
 
     logger.info('followup.scheduler.start', { limit });
@@ -99,8 +109,22 @@ export async function runFollowUpScheduler(deps: SchedulerDeps, limit = 20): Pro
     summary.due = due.length;
     logger.info('followup.discovered', { count: due.length });
 
-    // Sequential on purpose: each follow-up is one generation and one send, and the limit keeps a run short.
-    for (const row of due) {
+    // Sequential on purpose. Between sends there is a random pause, and a run sends at most MAX_SENDS_PER_RUN.
+    // Before each send the window is checked again, so a late run can never send outside it.
+    for (const [index, row] of due.entries()) {
+        if (index > 0) await deps.pause(pacingMs(deps.random));
+
+        const current = deps.now();
+        if (!isSendWindow(current, deps.zone) || summary.claimed >= MAX_SENDS_PER_RUN) {
+            // Move to a later jittered slot inside the window. Outside the window, that is the next valid day.
+            const next = jitteredSendSlot(current, deps.zone, deps.random);
+            if (await deps.store.moveDue(row, next)) {
+                summary.rescheduled++;
+                logger.info('followup.rescheduled', { follow_up_id: row.id, job_id: row.job_id, reason: isSendWindow(current, deps.zone) ? 'run_limit' : 'outside_window' });
+            }
+            continue;
+        }
+
         await processRow(deps, row, summary);
     }
 
@@ -128,10 +152,11 @@ async function processRow(deps: SchedulerDeps, row: FollowUpRow, summary: Schedu
 
     const job = await deps.store.getJob(claimed);
     if (!job || !awaitingReply(job.status, claimed.follow_up_number)) {
-        const message = 'The job no longer awaits this follow-up.';
-        await deps.store.cancel(claimed, token, 'JOB_NOT_AWAITING_REPLY', message);
+        // Nothing is generated and nothing is sent. A recorded reply is the most common reason.
+        const code = job?.status === 'replied' ? 'RECIPIENT_REPLIED' : 'JOB_NOT_AWAITING_REPLY';
+        await deps.store.cancel(claimed, token, code, skipMessage(code));
         summary.cancelled++;
-        logger.info('followup.cancelled', { ...ids, error_code: 'JOB_NOT_AWAITING_REPLY' });
+        logger.info('followup.skipped', { ...ids, reason: code });
         return;
     }
 
@@ -151,6 +176,17 @@ async function processRow(deps: SchedulerDeps, row: FollowUpRow, summary: Schedu
     if (!(await deps.store.saveContent(claimed, token, content))) {
         summary.claims_lost++;
         logger.warn('followup.claim_lost', { ...ids, stage: 'save_content' });
+        return;
+    }
+
+    // A reply can be recorded while the text was being written. Check again right before the message leaves.
+    // This narrows the window to the moment of the SMTP call. It cannot close it, because SMTP cannot be undone.
+    const latest = await deps.store.getJob(claimed);
+    if (!latest || !awaitingReply(latest.status, claimed.follow_up_number)) {
+        const code = latest?.status === 'replied' ? 'RECIPIENT_REPLIED' : 'JOB_NOT_AWAITING_REPLY';
+        await deps.store.cancel(claimed, token, code, skipMessage(code));
+        summary.cancelled++;
+        logger.info('followup.skipped', { ...ids, reason: code });
         return;
     }
 
@@ -211,4 +247,10 @@ async function finishFailure(
         summary.failed++;
         logger.error('followup.failed', { ...ids, error_code: decision.code, error_message: decision.message });
     }
+}
+
+function skipMessage(code: string): string {
+    return code === 'RECIPIENT_REPLIED'
+        ? 'The recruiter replied, so this follow-up was not sent.'
+        : 'The job no longer awaits this follow-up.';
 }

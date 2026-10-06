@@ -145,6 +145,20 @@ export function createSupabaseFollowUpStore(supabase: SupabaseClient): FollowUpS
             });
         },
 
+        async moveDue(row, dueAt) {
+            const { data, error } = await supabase
+                .from('application_emails')
+                .update({ due_at: dueAt.toISOString(), updated_at: new Date().toISOString() })
+                .eq('id', row.id)
+                .eq('status', 'scheduled')
+                .eq('due_at', row.due_at)
+                .select('id')
+                .maybeSingle();
+
+            if (error) throw new Error(`Could not move follow-up: ${error.message}`);
+            return data !== null;
+        },
+
         // Stale rows are failed only if they still carry the claim we read, so a worker that finished in
         // the meantime is not overwritten.
         async failStale(row, now) {

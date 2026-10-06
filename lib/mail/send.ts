@@ -14,7 +14,7 @@ import { logger, errorFields } from '@/lib/log/logger';
 import { followUpDueAt } from '@/lib/followups/policy';
 import type { ApplicationEmail } from '@/lib/types/applications';
 import type { Job } from '@/lib/types/jobs';
-import { sendSmtpMessage } from './smtp';
+import { readSmtpSettings, resolveSender, sendSmtpMessage } from './smtp';
 
 export interface OutgoingEmail {
     id: string;
@@ -253,9 +253,13 @@ async function resumeAttachment(supabase: SupabaseClient, userId: string, resume
     }];
 }
 
+// The Message-ID domain is the From domain, so the two line up for DMARC.
 function senderDomain(): string {
-    const from = process.env.SMTP_FROM ?? '';
-    const match = from.match(/@([^>\s]+)>?\s*$/);
-    if (!match) throw new HarnessError('SMTP_FROM must contain an email address');
-    return match[1];
+    let sender;
+    try {
+        sender = resolveSender(readSmtpSettings());
+    } catch (error) {
+        throw new HarnessError(error instanceof Error ? error.message : 'SMTP is not configured');
+    }
+    return sender.address.split('@')[1];
 }
