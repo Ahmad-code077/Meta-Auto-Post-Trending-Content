@@ -15,7 +15,8 @@ Both products share authentication, the Supabase client, the UI primitives and t
 | Job applications: list, filter, details | Built |
 | Job intake: paste posting, analyze, create draft | Built |
 | Draft review, editing and SMTP send with the current resume attached | Built |
-| Follow-up drafts and sending | Built (server actions). No UI yet |
+| Follow-ups: scheduled automatically 7 days after an application, sent by the cron scheduler, with retries | Built |
+| Follow-up drafts written by hand (manual drafts, server actions) | Built. No UI yet |
 | Personal profile: details, skills, experience, projects, resume (`/dashboard/profile`) | Built |
 | Approve and reject posts | Server actions exist. No UI yet |
 | Hashtag management, auto-replies, resume parsing | Not in this repo |
@@ -50,6 +51,8 @@ Access is admin-only. Signup is disabled, so create the admin user in the Supaba
 | `SMTP_REQUIRE_TLS` | `lib/mail/smtp.ts` | Default `true`. Refuses to send over an unencrypted connection |
 | `SMTP_USER` / `SMTP_PASS` | `lib/mail/smtp.ts` | SMTP credentials |
 | `SMTP_FROM` | `lib/mail/smtp.ts` | Sender address, optionally `Name <address@example.com>`. Its domain is used for Message-IDs |
+| `CRON_SECRET` | `app/api/cron/follow-ups` | Bearer token that authorizes the scheduler. Vercel Cron sends it when set on the project. Unset means the endpoint refuses every request |
+| `SUPABASE_SERVICE_ROLE_KEY` | `lib/supabase/admin.ts` | Service-role client for the scheduler, which has no user session. Server only. Bypasses row level security, so every scheduler query filters by `user_id` |
 | `N8N_WEBHOOK_SECRET` | Meta actions | Sent as `Authorization: Bearer` to the Meta webhooks |
 | `NEXT_PUBLIC_N8N_GENERATE_IMAGE_WEBHOOK_URL` | `app/actions/posts.ts` | Image generation webhook |
 | `NEXT_PUBLIC_N8N_PUBLISH_POST_WEBHOOK_URL` | `app/actions/posts.ts` | Publish webhook |
@@ -139,6 +142,59 @@ A failed SMTP attempt sets the row to `failed` with the error, and it can be ret
 - **Irreversible actions** (publish, send email, delete old posts) go through `ConfirmDialog`.
 - **Pages never mix products.** Meta lives under `/dashboard`, applications under `/dashboard/job-posts`.
 
+## Follow-up scheduler
+
+An application that is sent gets a follow-up scheduled 7 days later. The follow-up is an `application_emails` row with `kind = 'follow_up'`, `follow_up_number = 1`, and `status = 'scheduled'`. Its text is written when it is processed, not when it is scheduled, so the content reflects the job and the earlier email as they are then.
+
+### Trigger
+
+`vercel.json` runs `GET /api/cron/follow-ups` once a day at 09:00 UTC (`0 9 * * *`). That schedule works on every Vercel plan. Hourly runs need a plan that allows them. To run hourly, change the schedule to `0 * * * *`. Retries and due times depend on the frequency: with a daily trigger, a retry runs on the next day's trigger.
+
+The route only authenticates and reports. `lib/followups/scheduler.ts` decides what is due and what to do with it.
+
+### Authentication
+
+The route requires `Authorization: Bearer <CRON_SECRET>`. The comparison is constant time. If `CRON_SECRET` is not set, the route returns 503 and never authorizes a request. Failed attempts are logged as `cron.unauthorized` without the header value.
+
+### States
+
+```
+scheduled --claim (due)--> processing --generate & send--> sent
+scheduled <--release-- processing                        (retry, while attempts remain)
+processing --------------> failed                        (not retryable, attempts used up, or stale claim)
+scheduled --------------> cancelled                     (the job no longer awaits this follow-up)
+```
+
+- `scheduled`: `due_at` is set. `attempts` counts the attempts made so far.
+- `processing`: claimed by one worker. `claim_token` and `claimed_at` identify the claim.
+- `sent`: only written after SMTP accepts the message. `message_id` and `sent_at` are set.
+- `failed`: `error` and `error_code` say why. A person can resend it from the review page.
+- `cancelled`: the job was replied to or closed before the follow-up was due.
+
+### Idempotency
+
+- **Claim.** A single conditional `UPDATE` moves a row from `scheduled` to `processing`. It matches only when the status is `scheduled`, `due_at` has passed, and `attempts` equals the value the worker read. If two workers read the same row, only one matches.
+- **Fencing.** Every later write requires the same `claim_token` and `status = 'processing'`. A worker that lost its claim cannot overwrite the result of the worker that took over.
+- **Database guard.** A partial unique index allows at most one live (`scheduled` or `processing`) follow-up per job and number.
+- **Stale claims.** A `processing` row whose claim is older than 20 minutes has lost its worker. It is marked `failed` with `STALE_CLAIM`, and never resent automatically, because the email may already have been delivered.
+
+### Retry policy
+
+| Failure | Where | Outcome |
+| --- | --- | --- |
+| Generation error (AI or network) | before send | retry, nothing was sent |
+| SMTP `ECONNECTION` or `EDNS` | before the message body | retry |
+| SMTP `ETIMEDOUT`, `ESOCKET`, `EAUTH`, `EENVELOPE`, other | after the message may have reached the server | `failed`, no retry |
+| No earlier sent email, job no longer awaiting a reply | any | `failed` or `cancelled`, no retry |
+
+Retries wait 15 minutes after the first failure, 60 minutes after the second, and then stop at the third attempt, which marks the row `failed`. The delays are in `lib/followups/policy.ts`. A failed follow-up is never retried after an SMTP failure that could have delivered the message, so a retry can never send a second copy.
+
+### Logs
+
+Each run writes one-line JSON to the function logs, with events such as `followup.scheduler.start`, `followup.discovered`, `followup.claimed`, `followup.generation.start|success|failed`, `followup.send.start|success|failed`, `followup.retry_scheduled`, `followup.sent`, `followup.failed`, `followup.cancelled`, and `followup.scheduler.end`. Each carries the follow-up, job and attempt ids, plus `error_code` and a scrubbed `error_message` where relevant.
+
+Passwords, API keys, `CRON_SECRET`, the service-role key, tokens, email bodies and subjects, recipient addresses and resume contents are never logged. `lib/log/logger.ts` drops keys that could hold them, and tests check that they do not appear.
+
 ## Using the system end to end
 
 1. **Profile** (`/dashboard/profile`): details and links, skills, experience, projects, and the resume. The profile is the only source the harness uses.
@@ -163,6 +219,10 @@ Every table has `user_id` and row level security (`user_id = auth.uid()`).
 | `posts` (existing) | Meta product |
 
 Skills are stored once and linked from experiences and projects. Skill names are never copied into those rows.
+
+## Tests
+
+`npm test` compiles `tests/` with the TypeScript compiler already in the repo, and runs each file with Node's built-in test runner. No new dependency is needed, and no test calls OpenAI, SMTP or Supabase. The scheduler tests run the real state machine against an in-memory store that follows the same conditional-write rules as the database. Those rules are checked by the tests, not by a live database, so a real two-worker race in production is still worth a manual check.
 
 ## Webhook contract (n8n, Meta only)
 
