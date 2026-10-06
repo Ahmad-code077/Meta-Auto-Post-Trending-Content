@@ -9,6 +9,8 @@ import { runFollowUpScheduler } from '@/lib/followups/scheduler';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
+// The run paces its sends with pauses of up to 20 seconds, so it needs more than the default time.
+export const maxDuration = 300;
 
 export async function GET(request: Request) {
     if (!process.env.CRON_SECRET) {

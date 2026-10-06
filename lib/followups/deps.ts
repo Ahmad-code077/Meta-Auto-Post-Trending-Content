@@ -6,11 +6,15 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { generateFollowUpContent } from '@/lib/harness/application';
 import { advanceJobAfterSend, transmitEmail } from '@/lib/mail/send';
 import { createSupabaseFollowUpStore } from './store';
+import { followUpTimeZone } from './schedule';
 import type { SchedulerDeps } from './scheduler';
 
 export function createFollowUpDeps(supabase: SupabaseClient): SchedulerDeps {
     return {
         store: createSupabaseFollowUpStore(supabase),
+        zone: followUpTimeZone(),
+        random: () => Math.random(),
+        pause: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
         now: () => new Date(),
         newToken: () => randomUUID(),
 

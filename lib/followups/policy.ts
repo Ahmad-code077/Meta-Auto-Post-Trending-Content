@@ -1,6 +1,7 @@
 // Pure rules for scheduled follow-ups. No I/O, so every decision is deterministic and testable.
 
 import { scrub } from '@/lib/log/logger';
+import { followUpTimeZone, jitteredSendSlot } from './schedule';
 
 export const FOLLOW_UP_DELAY_DAYS = 7;
 export const MAX_ATTEMPTS = 3;
@@ -41,8 +42,10 @@ export function classifyFailure(error: unknown, stage: FailureStage): FailureDec
         return { retry: false, code: code ?? 'PERMANENT', message };
     }
 
+    // A generation is never retried automatically. Each generation already had its model-call budget (see
+    // MAX_LLM_ATTEMPTS in lib/harness/write.ts). Another automatic run would spend a second budget on the same follow-up.
     if (stage === 'generate') {
-        return { retry: true, code: code ?? 'GENERATION_FAILED', message };
+        return { retry: false, code: code ?? 'GENERATION_FAILED', message };
     }
 
     if (code === 'ECONNECTION' || code === 'EDNS') {
@@ -59,8 +62,9 @@ export function nextAttemptAt(attemptsSoFar: number, now: Date): Date | null {
     return new Date(now.getTime() + minutes * 60_000);
 }
 
-export function followUpDueAt(sentAt: Date): Date {
-    return new Date(sentAt.getTime() + FOLLOW_UP_DELAY_DAYS * 86_400_000);
+// The 7-day gap, moved into the Tuesday-to-Thursday morning window with a random offset. See lib/followups/schedule.ts.
+export function followUpDueAt(sentAt: Date, zone: string = followUpTimeZone(), random: () => number = Math.random): Date {
+    return jitteredSendSlot(new Date(sentAt.getTime() + FOLLOW_UP_DELAY_DAYS * 86_400_000), zone, random);
 }
 
 export function isDue(due: { status: string; due_at: string | null }, now: Date): boolean {
