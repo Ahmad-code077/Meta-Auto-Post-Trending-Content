@@ -2,7 +2,8 @@
 // that are stored with them for inspection.
 
 export type ApplicationEmailKind = 'application' | 'follow_up';
-export type ApplicationEmailStatus = 'draft' | 'sending' | 'sent' | 'failed';
+// scheduled/processing/cancelled belong to follow-ups; see supabase/migrations for the state machine.
+export type ApplicationEmailStatus = 'scheduled' | 'processing' | 'draft' | 'sending' | 'sent' | 'failed' | 'cancelled';
 
 export interface ApplicationEmail {
     id: string;
@@ -10,15 +11,18 @@ export interface ApplicationEmail {
     kind: ApplicationEmailKind;
     follow_up_number: number | null;
     status: ApplicationEmailStatus;
-    subject: string;
-    body: string;
+    subject: string | null;      // null until a scheduled follow-up is processed
+    body: string | null;
     to_email: string;
     resume_id: string | null;
     message_id: string | null;
     in_reply_to: string | null;
     references_header: string | null;
     sent_at: string | null;
+    due_at: string | null;
+    attempts: number;
     error: string | null;
+    error_code: string | null;
     generation: GenerationRecord | null;
     created_at: string;
     updated_at: string;

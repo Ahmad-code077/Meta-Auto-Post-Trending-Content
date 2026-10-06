@@ -1,18 +1,29 @@
-// Sends a reviewed draft over SMTP. The only path that marks an email as sent.
+// Sends reviewed drafts and scheduled follow-ups over SMTP. The only path that marks an email as sent.
 //
 // Guarantees:
-//  - A draft is claimed atomically (draft or failed -> sending), so a double click cannot send twice.
+//  - A user-triggered send claims the draft atomically (draft or failed -> sending). A double click cannot send twice.
 //  - status becomes "sent" only after the SMTP server accepts the recipient.
-//  - A failed attempt is recorded as "failed" with the error, and can be retried.
+//  - A failed attempt is recorded as "failed" with the error, so it can be retried by hand.
+//  - Scheduled follow-ups use the same transport (transmitEmail) and the same job update (advanceJobAfterSend).
+//    The scheduler adds its own claim and retry rules on top; see lib/followups/scheduler.ts.
 
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { HarnessError, getOwnedJob } from '@/lib/harness/application';
+import { logger, errorFields } from '@/lib/log/logger';
+import { followUpDueAt } from '@/lib/followups/policy';
 import type { ApplicationEmail } from '@/lib/types/applications';
 import type { Job } from '@/lib/types/jobs';
 import { sendSmtpMessage } from './smtp';
 
-const FOLLOW_UP_INTERVAL_DAYS = 7;
+export interface OutgoingEmail {
+    id: string;
+    to_email: string;
+    subject: string;
+    body: string;
+    in_reply_to: string | null;
+    references_header: string | null;
+}
 
 export async function sendApplicationEmail(
     supabase: SupabaseClient,
@@ -30,7 +41,7 @@ export async function sendApplicationEmail(
 
     const draft = email as ApplicationEmail;
     const job = await getOwnedJob(supabase, userId, draft.job_id);
-    assertSendable(draft, job);
+    await assertSendable(supabase, userId, draft, job);
 
     // Applications always carry the resume that is current at send time, not the one from when the draft was made.
     const resumeId = draft.kind === 'application' ? await currentResumeId(supabase, userId) : null;
@@ -50,19 +61,12 @@ export async function sendApplicationEmail(
 
     let messageId: string;
     try {
-        const attachments = await resumeAttachment(supabase, userId, resumeId);
-        messageId = await sendSmtpMessage({
-            to: draft.to_email,
-            subject: draft.subject,
-            text: draft.body,
-            messageId: `<${randomUUID()}@${senderDomain()}>`,
-            inReplyTo: draft.in_reply_to,
-            references: draft.references_header,
-            attachments,
-        });
+        // assertSendable has already rejected drafts without text, so the nulls are safe to default here.
+        messageId = await transmitEmail(supabase, userId, { ...draft, subject: draft.subject ?? '', body: draft.body ?? '' }, resumeId);
     } catch (sendError) {
         // SMTP did not accept the message. Record the failure so the user can retry.
         const message = sendError instanceof Error ? sendError.message : 'Unknown error';
+        logger.error('email.send.failed', { email_id: draft.id, job_id: draft.job_id, kind: draft.kind, ...errorFields(sendError) });
         await supabase
             .from('application_emails')
             .update({ status: 'failed', error: message, updated_at: new Date().toISOString() })
@@ -73,34 +77,140 @@ export async function sendApplicationEmail(
 
     // The message is out. If recording it fails, keep the status as "sending" and log the
     // message id, so nobody resends it by accident.
-    const sentAt = new Date().toISOString();
+    const sentAt = new Date();
     const { data: sent, error: recordError } = await supabase
         .from('application_emails')
-        .update({ status: 'sent', sent_at: sentAt, message_id: messageId, error: null, updated_at: sentAt })
+        .update({ status: 'sent', sent_at: sentAt.toISOString(), message_id: messageId, error: null, updated_at: sentAt.toISOString() })
         .eq('id', draft.id)
         .eq('user_id', userId)
         .select('*')
         .single();
 
     if (recordError || !sent) {
-        console.error(`Email ${draft.id} was sent as ${messageId} but could not be recorded:`, recordError);
+        logger.error('email.record_failed', { email_id: draft.id, job_id: draft.job_id, message_id: messageId });
         throw new HarnessError('The email was sent, but its status could not be saved. Check the sent folder before retrying.');
     }
 
-    await advanceJob(supabase, userId, job, draft, sentAt);
+    logger.info('email.sent', { email_id: draft.id, job_id: draft.job_id, kind: draft.kind, message_id: messageId });
+    await advanceJobAfterSend(supabase, userId, job, draft, sentAt, messageId);
 
     return sent as ApplicationEmail;
 }
 
-function assertSendable(draft: ApplicationEmail, job: Job) {
+// Builds the message and hands it to the SMTP transport. Returns the Message-ID that was sent.
+// Used by the user-triggered send and by the scheduler, so there is one SMTP path.
+export async function transmitEmail(
+    supabase: SupabaseClient,
+    userId: string,
+    email: OutgoingEmail,
+    resumeId: string | null
+): Promise<string> {
+    const attachments = await resumeAttachment(supabase, userId, resumeId);
+    return sendSmtpMessage({
+        to: email.to_email,
+        subject: email.subject,
+        text: email.body,
+        messageId: `<${randomUUID()}@${senderDomain()}>`,
+        inReplyTo: email.in_reply_to,
+        references: email.references_header,
+        attachments,
+    });
+}
+
+// Moves the job forward after a successful send, and keeps follow-ups consistent with it.
+//  - An application schedules follow-up 1 for FOLLOW_UP_DELAY_DAYS later.
+//  - A sent follow-up cancels any other scheduled follow-up with the same number, so it cannot send twice.
+// Failures here are logged, not thrown. The email has already been sent, so the send itself stands.
+export async function advanceJobAfterSend(
+    supabase: SupabaseClient,
+    userId: string,
+    job: Job,
+    email: Pick<ApplicationEmail, 'id' | 'kind' | 'follow_up_number' | 'to_email' | 'references_header'>,
+    sentAt: Date,
+    messageId: string
+): Promise<void> {
+    const sentAtIso = sentAt.toISOString();
+    const dueAt = followUpDueAt(sentAt).toISOString();
+
+    const patch = email.kind === 'application'
+        ? { status: 'sent', sent_at: sentAtIso, follow_up_date: dueAt, follow_up_count: 0 }
+        : {
+            status: email.follow_up_number === 1 ? 'follow_up_1' : 'follow_up_2',
+            follow_up_count: email.follow_up_number,
+            follow_up_date: email.follow_up_number === 1 ? dueAt : null,
+        };
+
+    const { error } = await supabase.from('jobs').update(patch).eq('id', job.id).eq('user_id', userId);
+    if (error) {
+        logger.error('job.update_failed', { job_id: job.id, email_id: email.id, error_code: error.code ?? null });
+    }
+
+    if (email.kind === 'application') {
+        const { error: scheduleError } = await supabase.from('application_emails').insert({
+            user_id: userId,
+            job_id: job.id,
+            kind: 'follow_up',
+            follow_up_number: 1,
+            status: 'scheduled',
+            due_at: dueAt,
+            subject: null,
+            body: null,
+            to_email: email.to_email,
+            in_reply_to: messageId,
+            references_header: [email.references_header, messageId].filter(Boolean).join(' ') || null,
+        });
+
+        if (scheduleError) {
+            logger.error('followup.schedule_failed', { job_id: job.id, error_code: scheduleError.code ?? null });
+        } else {
+            logger.info('followup.scheduled', { job_id: job.id, due_at: dueAt, follow_up_number: 1 });
+        }
+        return;
+    }
+
+    const { error: cancelError } = await supabase
+        .from('application_emails')
+        .update({ status: 'cancelled', error: 'Superseded by a sent follow-up', error_code: 'SUPERSEDED', updated_at: sentAtIso })
+        .eq('job_id', job.id)
+        .eq('user_id', userId)
+        .eq('kind', 'follow_up')
+        .eq('follow_up_number', email.follow_up_number)
+        .eq('status', 'scheduled')
+        .neq('id', email.id);
+
+    if (cancelError) {
+        logger.error('followup.cancel_failed', { job_id: job.id, error_code: cancelError.code ?? null });
+    }
+}
+
+async function assertSendable(supabase: SupabaseClient, userId: string, draft: ApplicationEmail, job: Job) {
     if (!draft.to_email) throw new HarnessError('This draft has no recipient');
 
     if (draft.kind === 'application' && job.status !== 'draft_created') {
         throw new HarnessError('Only a draft application can be sent for this job');
     }
 
-    if (draft.kind === 'follow_up' && job.status !== 'sent' && job.status !== 'follow_up_1') {
-        throw new HarnessError('The follow-up can only be sent after the application');
+    if (draft.kind === 'follow_up') {
+        if (job.status !== 'sent' && job.status !== 'follow_up_1') {
+            throw new HarnessError('The follow-up can only be sent after the application');
+        }
+        if (!draft.subject || !draft.body) {
+            throw new HarnessError('This follow-up has not been written yet');
+        }
+
+        // A scheduler run may be sending this follow-up number right now.
+        const { data: inFlight } = await supabase
+            .from('application_emails')
+            .select('id')
+            .eq('job_id', draft.job_id)
+            .eq('user_id', userId)
+            .eq('kind', 'follow_up')
+            .eq('follow_up_number', draft.follow_up_number)
+            .eq('status', 'processing')
+            .limit(1)
+            .maybeSingle();
+
+        if (inFlight) throw new HarnessError('This follow-up is being sent right now');
     }
 }
 
@@ -141,31 +251,6 @@ async function resumeAttachment(supabase: SupabaseClient, userId: string, resume
         content: Buffer.from(await file.arrayBuffer()),
         contentType: resume.content_type,
     }];
-}
-
-// Moves the job forward after a successful send. This replaces the n8n status write.
-async function advanceJob(
-    supabase: SupabaseClient,
-    userId: string,
-    job: Job,
-    draft: ApplicationEmail,
-    sentAt: string
-) {
-    const now = new Date(sentAt);
-    const addDays = (days: number) => new Date(now.getTime() + days * 86_400_000).toISOString();
-
-    const patch = draft.kind === 'application'
-        ? { status: 'sent', sent_at: sentAt, follow_up_date: addDays(FOLLOW_UP_INTERVAL_DAYS), follow_up_count: 0 }
-        : {
-            status: draft.follow_up_number === 1 ? 'follow_up_1' : 'follow_up_2',
-            follow_up_count: draft.follow_up_number,
-            follow_up_date: draft.follow_up_number === 1 ? addDays(FOLLOW_UP_INTERVAL_DAYS) : null,
-        };
-
-    const { error } = await supabase.from('jobs').update(patch).eq('id', job.id).eq('user_id', userId);
-    if (error) {
-        console.error(`Email ${draft.id} sent, but the job ${job.id} status was not updated:`, error);
-    }
 }
 
 function senderDomain(): string {

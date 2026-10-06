@@ -29,8 +29,9 @@ export default async function JobReviewPage({ params }: { params: Promise<{ id: 
     if (error) throw new Error('Could not load this application')
 
     const rows = emails ?? []
-    const pending = rows.find((e) => e.status !== 'sent') ?? null
-    const sent = rows.find((e) => e.status === 'sent') ?? null
+    // Only written, unsent mail is reviewed here. Scheduled follow-ups have no text until they are processed.
+    const pending = rows.find((e) => ['draft', 'failed', 'sending'].includes(e.status)) ?? null
+    const sent = rows.find((e) => e.status === 'sent' && e.kind === 'application') ?? null
 
     const { data: resume } = await supabase
         .from('resumes')
@@ -44,8 +45,8 @@ export default async function JobReviewPage({ params }: { params: Promise<{ id: 
             id: pending.id,
             kind: pending.kind,
             status: pending.status as DraftView['status'],
-            subject: pending.subject,
-            body: pending.body,
+            subject: pending.subject ?? '',
+            body: pending.body ?? '',
             toEmail: pending.to_email,
             error: pending.error,
             edited: Boolean((pending.generation as GenerationRecord | null)?.edited_at),

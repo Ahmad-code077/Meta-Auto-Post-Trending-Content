@@ -7,6 +7,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { loadProfile, profileIsUsable } from '@/lib/data/profile';
+import { PermanentFollowUpError } from '@/lib/followups/policy';
 import type { ApplicationEmail, GenerationRecord } from '@/lib/types/applications';
 import type { Job, JobAnalysis } from '@/lib/types/jobs';
 import type { ProfileSnapshot } from '@/lib/types/profile';
@@ -168,6 +169,67 @@ export async function createApplicationDraft(
 // Follow-ups
 // ---------------------------------------------------------------------------
 
+export interface FollowUpContent {
+    subject: string;
+    body: string;
+    generation: GenerationRecord;
+    previous: { id: string; to_email: string; message_id: string | null; references_header: string | null };
+}
+
+// The one place follow-up text is written. Manual drafts and scheduled follow-ups both call it.
+// Follow-ups use the earlier email and the job only. They carry no profile links and no resume.
+export async function generateFollowUpContent(
+    supabase: SupabaseClient,
+    userId: string,
+    job: Job,
+    followUpNumber: number
+): Promise<FollowUpContent> {
+    const { data: previous, error: previousError } = await supabase
+        .from('application_emails')
+        .select('*')
+        .eq('job_id', job.id)
+        .eq('user_id', userId)
+        .eq('status', 'sent')
+        .order('sent_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (previousError) throw new HarnessError(`Could not load the earlier email: ${previousError.message}`);
+    if (!previous) throw new PermanentFollowUpError('NO_PREVIOUS_SENT', 'No sent email was found for this job');
+
+    const profile = await loadProfile(supabase, userId);
+    const daysSinceSent = Math.max(0, Math.round((Date.now() - new Date(previous.sent_at).getTime()) / 86_400_000));
+
+    const { email, attempts } = await writeFollowUpEmail({
+        job: { title: job.title, company: job.company, recruiter_name: job.recruiter_name },
+        previous: { subject: previous.subject, body: previous.body, sent_at: previous.sent_at },
+        followUpNumber,
+        daysSinceSent,
+        profile,
+    });
+
+    return {
+        subject: email.subject.trim(),
+        body: `${email.body.trim()}\n\n${signature(profile, false)}`,
+        generation: {
+            model: OPENAI_MODEL,
+            prompt_version: FOLLOW_UP_PROMPT_VERSION,
+            attempts,
+            generated_at: new Date().toISOString(),
+            plan: null,
+            evidence: [],
+            citations: [],
+            previous_email_id: previous.id,
+        },
+        previous: {
+            id: previous.id,
+            to_email: previous.to_email,
+            message_id: previous.message_id,
+            references_header: previous.references_header,
+        },
+    };
+}
+
 export async function createFollowUpDraft(
     supabase: SupabaseClient,
     userId: string,
@@ -184,42 +246,29 @@ export async function createFollowUpDraft(
         throw new HarnessError('The maximum number of follow-ups has been reached');
     }
 
-    const { data: previous, error: previousError } = await supabase
+    // A scheduled follow-up for this number would send alongside a manual draft. Refuse instead.
+    const { data: live } = await supabase
         .from('application_emails')
-        .select('*')
+        .select('id')
         .eq('job_id', job.id)
         .eq('user_id', userId)
-        .eq('status', 'sent')
-        .order('sent_at', { ascending: false })
+        .eq('kind', 'follow_up')
+        .eq('follow_up_number', followUpNumber)
+        .in('status', ['scheduled', 'processing'])
         .limit(1)
         .maybeSingle();
 
-    if (previousError || !previous) throw new HarnessError('No sent email was found for this job');
+    if (live) throw new HarnessError('A follow-up is already scheduled for this application');
 
-    const profile = await loadProfile(supabase, userId);
-    const daysSinceSent = Math.max(0, Math.round((Date.now() - new Date(previous.sent_at).getTime()) / 86_400_000));
+    let content: FollowUpContent;
+    try {
+        content = await generateFollowUpContent(supabase, userId, job, followUpNumber);
+    } catch (error) {
+        if (error instanceof PermanentFollowUpError) throw new HarnessError(error.message);
+        throw error;
+    }
 
-    const { email, attempts } = await writeFollowUpEmail({
-        job: { title: job.title, company: job.company, recruiter_name: job.recruiter_name },
-        previous: { subject: previous.subject, body: previous.body, sent_at: previous.sent_at },
-        followUpNumber,
-        daysSinceSent,
-        profile,
-    });
-
-    const body = `${email.body.trim()}\n\n${signature(profile, false)}`;
-    const references = [previous.references_header, previous.message_id].filter(Boolean).join(' ');
-
-    const generation: GenerationRecord = {
-        model: OPENAI_MODEL,
-        prompt_version: FOLLOW_UP_PROMPT_VERSION,
-        attempts,
-        generated_at: new Date().toISOString(),
-        plan: null,
-        evidence: [],
-        citations: [],
-        previous_email_id: previous.id,
-    };
+    const references = [content.previous.references_header, content.previous.message_id].filter(Boolean).join(' ');
 
     await supabase
         .from('application_emails')
@@ -237,13 +286,13 @@ export async function createFollowUpDraft(
             kind: 'follow_up',
             follow_up_number: followUpNumber,
             status: 'draft',
-            subject: email.subject.trim(),
-            body,
-            to_email: previous.to_email,
+            subject: content.subject,
+            body: content.body,
+            to_email: content.previous.to_email,
             resume_id: null,
-            in_reply_to: previous.message_id,
+            in_reply_to: content.previous.message_id,
             references_header: references || null,
-            generation,
+            generation: content.generation,
         })
         .select('*')
         .single();
