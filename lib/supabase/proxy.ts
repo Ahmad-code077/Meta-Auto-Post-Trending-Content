@@ -40,6 +40,14 @@ export async function updateSession(request: NextRequest) {
 
     const user = data?.claims
 
+    // API routes enforce their own authorization: requireUser() in server actions, a bearer secret for the
+    // cron routes, and Supabase's own flow for the auth callback. They must not be redirected to the login
+    // page, which is an HTML response a non-browser caller (Vercel Cron, curl, the cron secret check itself)
+    // can never follow. Without this, every cron request is redirected before CRON_SECRET is even checked.
+    if (request.nextUrl.pathname.startsWith('/api/')) {
+        return supabaseResponse
+    }
+
     const publicPaths = ['/login', '/signup', '/auth', '/', '/about', '/privacy']
     const isPublicPath = publicPaths.some(path =>
         request.nextUrl.pathname === path ||
