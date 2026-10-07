@@ -66,6 +66,7 @@ export interface GenerationRecord {
     citations: Citation[];
     previous_email_id: string | null;   // follow-ups only
     edited_at?: string;                  // set when the user changes the draft by hand
+    user_note?: string | null;           // the optional style request the user gave for this generation
 }
 
 export interface GeneratedEmail {

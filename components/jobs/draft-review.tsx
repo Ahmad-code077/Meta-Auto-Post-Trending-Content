@@ -10,6 +10,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { NOTE_MAX_LENGTH } from '@/lib/generation/guard'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -63,6 +65,7 @@ export function DraftReview({ job, draft, sent, resumeName }: DraftReviewProps) 
     const [error, setError] = useState<string | null>(null)
     const [confirmSend, setConfirmSend] = useState(false)
     const [confirmRegenerate, setConfirmRegenerate] = useState(false)
+    const [regenerateNote, setRegenerateNote] = useState('')
     const [isSaving, startSaving] = useTransition()
     const [isSending, startSending] = useTransition()
     const [isGenerating, startGenerating] = useTransition()
@@ -110,7 +113,9 @@ export function DraftReview({ job, draft, sent, resumeName }: DraftReviewProps) 
         setConfirmRegenerate(false)
         setError(null)
         startGenerating(async () => {
-            const result = await generateApplicationDraft(job.id)
+            // The note is optional. The server sanitizes it and passes it to the writer as a style request only.
+            const result = await generateApplicationDraft(job.id, regenerateNote.trim() || null)
+            setRegenerateNote('')
             if (result.success) {
                 toast({ title: 'Draft generated', description: 'Review it before sending.' })
                 router.refresh()
@@ -309,15 +314,35 @@ export function DraftReview({ job, draft, sent, resumeName }: DraftReviewProps) 
                 onConfirm={send}
             />
 
-            <ConfirmDialog
-                open={confirmRegenerate}
-                onOpenChange={setConfirmRegenerate}
-                title="Write a new draft?"
-                description="The current draft is replaced, and your edits to it are lost. Sent emails are not affected."
-                confirmLabel="Write new draft"
-                destructive
-                onConfirm={generate}
-            />
+            <Dialog open={confirmRegenerate} onOpenChange={setConfirmRegenerate}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Write a new draft?</DialogTitle>
+                        <DialogDescription>
+                            The current draft is replaced, and your edits to it are lost. Sent emails are not affected.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2">
+                        <Label htmlFor="regenerate-note">Instruction (optional)</Label>
+                        <Textarea
+                            id="regenerate-note"
+                            value={regenerateNote}
+                            onChange={(e) => setRegenerateNote(e.target.value)}
+                            maxLength={NOTE_MAX_LENGTH}
+                            rows={3}
+                            placeholder="For example: make it shorter and focus more on backend work"
+                        />
+                        <p className="text-xs text-muted-foreground">{regenerateNote.length} / {NOTE_MAX_LENGTH}. Style only. It cannot add facts.</p>
+                    </div>
+                    <DialogFooter className="gap-2 pt-2">
+                        <Button variant="outline" onClick={() => setConfirmRegenerate(false)} disabled={isGenerating}>Cancel</Button>
+                        <Button variant="destructive" onClick={generate} disabled={isGenerating}>
+                            {isGenerating && <Loader2 className="animate-spin" />}
+                            {isGenerating ? 'Writing draft' : 'Write new draft'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

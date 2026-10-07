@@ -3,6 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { requireUser } from '@/lib/supabase/server';
+import { draftGuard, parseGenerationInput } from '@/lib/generation/guard';
+import { GenerationError } from '@/lib/harness/write';
 import { createApplicationDraft, createFollowUpDraft, ensureJobAnalysis, getOwnedJob, HarnessError } from '@/lib/harness/application';
 import { sendApplicationEmail } from '@/lib/mail/send';
 import type { ActionResult } from '@/lib/types/actions';
@@ -28,6 +30,7 @@ const draftEditSchema = z.object({
 });
 
 function failure(error: unknown, fallback: string): { success: false; message: string } {
+    if (error instanceof GenerationError) return { success: false, message: error.message };
     if (error instanceof HarnessError) return { success: false, message: error.message };
     console.error(fallback, error);
     return { success: false, message: fallback };
@@ -56,7 +59,14 @@ export async function createApplicationFromJobDescription(
         revalidatePath('/dashboard/job-posts');
 
         try {
-            await createApplicationDraft(supabase, user.id, job.id);
+            // Same guard as the other generation actions. A refused slot leaves the saved job without a draft.
+            const slot = draftGuard.acquire(user.id, job.id);
+            if (!slot.ok) throw new HarnessError(slot.message);
+            try {
+                await createApplicationDraft(supabase, user.id, job.id);
+            } finally {
+                slot.release();
+            }
             revalidatePath('/dashboard/job-posts');
             return {
                 success: true,
@@ -76,23 +86,44 @@ export async function createApplicationFromJobDescription(
     }
 }
 
-export async function generateApplicationDraft(jobId: string): Promise<ActionResult<ApplicationEmail>> {
+// Each call is a new generation with its own two-call cap. Concurrent calls for the same application are refused.
+export async function generateApplicationDraft(jobId: string, note?: string | null): Promise<ActionResult<ApplicationEmail>> {
+    const input = parseGenerationInput({ jobId, note });
+    if (!input.ok) return { success: false, message: input.message };
+
     try {
         const { supabase, user } = await requireUser();
-        const draft = await createApplicationDraft(supabase, user.id, jobId);
-        revalidatePath('/dashboard/job-posts');
-        return { success: true, data: draft };
+        const slot = draftGuard.acquire(user.id, input.jobId);
+        if (!slot.ok) return { success: false, message: slot.message };
+
+        try {
+            const draft = await createApplicationDraft(supabase, user.id, input.jobId, { note: input.note });
+            revalidatePath('/dashboard/job-posts');
+            return { success: true, data: draft };
+        } finally {
+            slot.release();
+        }
     } catch (error) {
         return failure(error, 'The draft could not be created');
     }
 }
 
 export async function generateFollowUpDraft(jobId: string): Promise<ActionResult<ApplicationEmail>> {
+    const input = parseGenerationInput({ jobId });
+    if (!input.ok) return { success: false, message: input.message };
+
     try {
         const { supabase, user } = await requireUser();
-        const draft = await createFollowUpDraft(supabase, user.id, jobId);
-        revalidatePath('/dashboard/job-posts');
-        return { success: true, data: draft };
+        const slot = draftGuard.acquire(user.id, input.jobId);
+        if (!slot.ok) return { success: false, message: slot.message };
+
+        try {
+            const draft = await createFollowUpDraft(supabase, user.id, input.jobId);
+            revalidatePath('/dashboard/job-posts');
+            return { success: true, data: draft };
+        } finally {
+            slot.release();
+        }
     } catch (error) {
         return failure(error, 'The follow-up could not be created');
     }

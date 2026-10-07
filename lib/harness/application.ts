@@ -45,7 +45,7 @@ export async function ensureJobAnalysis(supabase: SupabaseClient, job: Job): Pro
         return job.analysis;
     }
 
-    const analysis = await analyzeJobDescription(job.raw_post);
+    const analysis = await analyzeJobDescription(job.raw_post, job.id);
 
     // Fill fields the user has not set. Existing values are never overwritten.
     const { error } = await supabase
@@ -79,7 +79,8 @@ export async function ensureJobAnalysis(supabase: SupabaseClient, job: Job): Pro
 export async function createApplicationDraft(
     supabase: SupabaseClient,
     userId: string,
-    jobId: string
+    jobId: string,
+    options: { note?: string | null } = {}
 ): Promise<ApplicationEmail> {
     const job = await getOwnedJob(supabase, userId, jobId);
 
@@ -111,11 +112,13 @@ export async function createApplicationDraft(
     const plan = buildWritingPlan({ analysis, profile, match, includeLinks: true });
 
     const { email, attempts } = await writeApplicationEmail({
+        jobId: job.id,
         analysis,
         plan,
         evidence: match.evidence,
         profile,
         sourceText: `${job.raw_post}\n${yearsIn(profile).join(' ')}`,
+        userNote: options.note ?? null,
     });
 
     const body = `${email.body.trim()}\n\n${signature(profile, plan.include_links.length > 0)}`;
@@ -129,6 +132,7 @@ export async function createApplicationDraft(
         evidence: match.evidence,
         citations: email.citations,
         previous_email_id: null,
+        user_note: options.note ?? null,
     };
 
     // Replacing an unsent draft keeps one current draft per job. Sent mail is never touched.
@@ -201,6 +205,7 @@ export async function generateFollowUpContent(
     const daysSinceSent = Math.max(0, Math.round((Date.now() - new Date(previous.sent_at).getTime()) / 86_400_000));
 
     const { email, attempts } = await writeFollowUpEmail({
+        jobId: job.id,
         job: { title: job.title, company: job.company, recruiter_name: job.recruiter_name },
         previous: { subject: previous.subject, body: previous.body, sent_at: previous.sent_at },
         followUpNumber,
