@@ -16,6 +16,7 @@ Both products share authentication, the Supabase client, the UI primitives and t
 | Job intake: paste posting, analyze, create draft | Built |
 | Draft review, editing and SMTP send with the current resume attached | Built |
 | Follow-ups: scheduled automatically 7 days after an application, sent by the cron scheduler, with retries | Built |
+| Recruiter replies: detected over IMAP, cancels pending follow-ups | Built |
 | Follow-up drafts written by hand (manual drafts, server actions) | Built. No UI yet |
 | Personal profile: details, skills, experience, projects, resume (`/dashboard/profile`) | Built |
 | Approve and reject posts | Server actions exist. No UI yet |
@@ -50,8 +51,11 @@ Access is admin-only. Signup is disabled, so create the admin user in the Supaba
 | `SMTP_SECURE` | `lib/mail/smtp.ts` | `true` for implicit TLS (port 465). Default `false` |
 | `SMTP_REQUIRE_TLS` | `lib/mail/smtp.ts` | Default `true`. Refuses to send over an unencrypted connection |
 | `SMTP_USER` / `SMTP_PASS` | `lib/mail/smtp.ts` | SMTP credentials |
-| `SMTP_FROM` | `lib/mail/smtp.ts` | Sender address, optionally `Name <address@example.com>`. Its domain is used for Message-IDs |
-| `CRON_SECRET` | `app/api/cron/follow-ups` | Bearer token that authorizes the scheduler. Vercel Cron sends it when set on the project. Unset means the endpoint refuses every request |
+| `SMTP_FROM` | `lib/mail/smtp.ts` | Display name for the From header, and the address only if `SMTP_USER` is not one. The From address is `SMTP_USER`; its domain is used for Message-IDs |
+| `IMAP_HOST` | `lib/inbox/imap.ts` | Defaults to `imap.gmail.com` |
+| `IMAP_PORT` | `lib/inbox/imap.ts` | Defaults to `993` (TLS) |
+| `IMAP_USER` / `IMAP_PASS` | `lib/inbox/imap.ts` | Default to `SMTP_USER` / `SMTP_PASS`. Set them only if the mailbox differs |
+| `CRON_SECRET` | `app/api/cron/follow-ups`, `app/api/cron/inbox-sync` | Bearer token that authorizes both cron routes. Vercel Cron sends it when set on the project. Unset means the endpoints refuse every request |
 | `SUPABASE_SERVICE_ROLE_KEY` | `lib/supabase/admin.ts` | Service-role client for the scheduler, which has no user session. Server only. Bypasses row level security, so every scheduler query filters by `user_id` |
 | `N8N_WEBHOOK_SECRET` | Meta actions | Sent as `Authorization: Bearer` to the Meta webhooks |
 | `NEXT_PUBLIC_N8N_GENERATE_IMAGE_WEBHOOK_URL` | `app/actions/posts.ts` | Image generation webhook |
@@ -159,6 +163,10 @@ The repo does not change DNS. These are the records the sending domain needs, se
 
 An application that is sent gets a follow-up scheduled 7 days later. The follow-up is an `application_emails` row with `kind = 'follow_up'`, `follow_up_number = 1`, and `status = 'scheduled'`. Its text is written when it is processed, not when it is scheduled, so the content reflects the job and the earlier email as they are then.
 
+### Managing follow-ups
+
+The application review page (`/dashboard/job-posts/<id>`) shows each follow-up with its status, scheduled or sent time and attempts. While a follow-up is `scheduled`, you can change its date or cancel it, and both actions ask for confirmation. A `failed` follow-up can be retried only when nothing could have reached the recipient. A `processing` or `sent` follow-up cannot be changed. The server checks ownership and the current status on every action (`lib/followups/manage.ts`), and each change is a conditional update, so a change that races the scheduler is refused.
+
 ### When follow-ups are sent
 
 Follow-ups go out on Tuesday, Wednesday or Thursday, between 9:00 and 11:00 AM in `FOLLOW_UP_TIMEZONE` (default `Asia/Karachi`). Mondays, Fridays and weekends are skipped, because inboxes are busiest on Monday and quiet on Friday. An automatic follow-up is due 7 days after the application is sent. Its due time is then placed at a random point inside the window: between 9:00 and 10:59 AM on the first Tuesday-to-Thursday day that falls on or after that date (`jitteredSendSlot` in `lib/followups/schedule.ts`). The random point is picked once, when the follow-up is scheduled, so two follow-ups do not share a due time. Manual reschedules outside the window are refused with the rule in the message.
@@ -169,7 +177,7 @@ Jitter is applied by the scheduler at run time too:
 - **Pauses between sends.** Each send after the first waits a random 5 to 20 seconds, so one run does not send in a steady rhythm.
 - **Unchanged rules.** The claim, the fenced writes, the retry policy and the cancellation checks run exactly as before. A moved follow-up is not an attempt.
 
-The cron runs at 04:00 UTC, which is 09:00 in Karachi. If you change `FOLLOW_UP_TIMEZONE`, change the cron time in `vercel.json` by the same offset.
+The cron runs at 04:00 UTC, which is 09:00 in Karachi. If you change `FOLLOW_UP_TIMEZONE`, change the cron times in `vercel.json` by the same offset. The inbox sync runs at 03:00 UTC, so replies are checked before the follow-ups go out.
 
 ### Trigger
 
@@ -222,6 +230,62 @@ Each run writes one-line JSON to the function logs, with events such as `followu
 
 Passwords, API keys, `CRON_SECRET`, the service-role key, tokens, email bodies and subjects, recipient addresses and resume contents are never logged. `lib/log/logger.ts` drops keys that could hold them, and tests check that they do not appear.
 
+## Recruiter replies
+
+The app sends mail over SMTP but could not read any, so replies were invisible. The inbox sync reads the sending mailbox over IMAP, read-only, and records replies.
+
+### Architecture
+
+- **Provider: IMAP with an app password.** Gmail API was not chosen. It needs a Google Cloud project, an OAuth consent screen, and a restricted-scope review for the read scope. Refresh tokens also expire every seven days while the app is in test mode. IMAP needs only the credentials the SMTP account already uses.
+- **Read-only, headers only.** The provider fetches `In-Reply-To`, `References`, `Auto-Submitted`, `Precedence` and the envelope with `BODY.PEEK`. Messages are not marked read, and no body is downloaded or stored.
+- **Trigger: `GET /api/cron/inbox-sync`.** Vercel Cron calls it at 03:00 UTC, an hour before the follow-up scheduler (04:00 UTC), so a reply that arrived overnight is recorded before the day's follow-ups run. It can also be called by hand with `Authorization: Bearer <CRON_SECRET>`. Replies are picked up at most once a day on the Hobby plan.
+
+### Matching
+
+`lib/inbox/match.ts` is deterministic. In order:
+
+1. `In-Reply-To` names one of our sent Message-IDs. Match.
+2. `References` names one of our sent Message-IDs. Match.
+3. The sender is the recruiter address we wrote to, and that address belongs to exactly one awaiting application. Match.
+4. The subject names the company or role of one application. This is reported for review and never changes the application.
+
+Ignored: automated mail (Auto-Submitted, bulk precedence, bounces, no-reply senders), mail from our own address, mail received before we sent the email, a message with no Message-ID, and any sender whose address maps to more than one application. Only awaiting statuses (`sent`, `follow_up_1`, `follow_up_2`) can be marked.
+
+### What is recorded, and the state change
+
+Outbound headers are already stored on each sent email (`message_id`, `in_reply_to`, `references_header`, `to_email`, `sent_at`). Matching uses them directly.
+
+When a reply is matched, the job is updated first, then its scheduled follow-ups are cancelled:
+
+- `jobs.status = 'replied'`, which is an existing status. The job is no longer awaiting a reply, so every existing guard refuses to send. That includes the scheduler, manual follow-up drafts, the reschedule and retry actions, and the send path.
+- `jobs.replied_at`, `jobs.reply_message_id` (normalized, used to recognise the same message again), `jobs.reply_match` (the method that matched).
+- Scheduled follow-ups become `cancelled` with `error_code = 'RECIPIENT_REPLIED'`. Processing and sent follow-ups are not touched.
+
+### Scheduler and race handling
+
+The scheduler checks eligibility at the claim, before it writes any text, and again after the text is written and immediately before the SMTP call. A reply recorded at either point cancels the follow-up with no AI call after the first check and no SMTP call at all. The check after the text is written covers replies that arrive during generation.
+
+A reply that is recorded in the final moments, after the second check and before SMTP accepts the message, cannot be stopped. SMTP cannot be undone. The window is the time of one SMTP call.
+
+### Required database changes (not in the repo)
+
+These must be applied by your database process:
+
+```sql
+alter table public.jobs
+    add column if not exists replied_at        timestamptz,
+    add column if not exists reply_message_id  text,
+    add column if not exists reply_match       text;
+```
+
+The sync and the timeline read these columns. If they are missing, the sync fails before it changes anything, because the job update is one statement.
+
+### Configuration
+
+For Gmail: enable 2-Step Verification on the account, create an app password, and use it as `SMTP_PASS`. Enable IMAP in Gmail settings. Set the same values on Vercel for Production.
+
+Confirmed in testing: Gmail keeps the Message-ID we set on outgoing mail, so a reply's `In-Reply-To` matches it exactly, and matching by header is the normal path. The sender fallback exists for mail systems that do rewrite it.
+
 ## Using the system end to end
 
 1. **Profile** (`/dashboard/profile`): details and links, skills, experience, projects, and the resume. The profile is the only source the harness uses.
@@ -248,6 +312,8 @@ Every table has `user_id` and row level security (`user_id = auth.uid()`).
 Skills are stored once and linked from experiences and projects. Skill names are never copied into those rows.
 
 ## Tests
+
+Inbox matching, the sync, and the scheduler's reply checks are covered by `tests/inbox.test.ts` and `tests/followups.test.ts`. They use in-memory stores and providers, so no mailbox, Supabase or OpenAI is contacted.
 
 `npm test` compiles `tests/` with the TypeScript compiler already in the repo, and runs each file with Node's built-in test runner. No new dependency is needed, and no test calls OpenAI, SMTP or Supabase. The scheduler tests run the real state machine against an in-memory store that follows the same conditional-write rules as the database. Those rules are checked by the tests, not by a live database, so a real two-worker race in production is still worth a manual check.
 
