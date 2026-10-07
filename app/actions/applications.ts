@@ -1,8 +1,8 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { requireUser } from '@/lib/supabase/server';
+import { revalidateApplicationPaths } from '@/lib/applications/revalidate';
 import { draftGuard, parseGenerationInput } from '@/lib/generation/guard';
 import { GenerationError } from '@/lib/harness/write';
 import { createApplicationDraft, createFollowUpDraft, ensureJobAnalysis, getOwnedJob, HarnessError } from '@/lib/harness/application';
@@ -56,7 +56,7 @@ export async function createApplicationFromJobDescription(
 
         if (error || !job) throw new Error(error?.message ?? 'Insert failed');
 
-        revalidatePath('/dashboard/job-posts');
+        revalidateApplicationPaths(job.id);
 
         try {
             // Same guard as the other generation actions. A refused slot leaves the saved job without a draft.
@@ -67,7 +67,7 @@ export async function createApplicationFromJobDescription(
             } finally {
                 slot.release();
             }
-            revalidatePath('/dashboard/job-posts');
+            revalidateApplicationPaths(job.id);
             return {
                 success: true,
                 data: { jobId: job.id, draftCreated: true, message: 'Draft created. Review it, then send.' },
@@ -98,7 +98,7 @@ export async function generateApplicationDraft(jobId: string, note?: string | nu
 
         try {
             const draft = await createApplicationDraft(supabase, user.id, input.jobId, { note: input.note });
-            revalidatePath('/dashboard/job-posts');
+            revalidateApplicationPaths(input.jobId);
             return { success: true, data: draft };
         } finally {
             slot.release();
@@ -119,7 +119,7 @@ export async function generateFollowUpDraft(jobId: string): Promise<ActionResult
 
         try {
             const draft = await createFollowUpDraft(supabase, user.id, input.jobId);
-            revalidatePath('/dashboard/job-posts');
+            revalidateApplicationPaths(input.jobId);
             return { success: true, data: draft };
         } finally {
             slot.release();
@@ -148,7 +148,7 @@ export async function sendJobEmail(jobId: string): Promise<ActionResult<{ emailI
         if (!draft) return { success: false, message: 'There is no draft to send for this job' };
 
         const sent = await sendApplicationEmail(supabase, user.id, draft.id);
-        revalidatePath('/dashboard/job-posts');
+        revalidateApplicationPaths(jobId);
         return { success: true, data: { emailId: sent.id } };
     } catch (error) {
         return failure(error, 'The email could not be sent');
@@ -161,7 +161,7 @@ export async function reanalyzeJob(jobId: string): Promise<ActionResult<Job>> {
         const { supabase, user } = await requireUser();
         const job = await getOwnedJob(supabase, user.id, jobId);
         await ensureJobAnalysis(supabase, { ...job, analysis_hash: null });
-        revalidatePath('/dashboard/job-posts');
+        revalidateApplicationPaths(jobId);
         return { success: true, data: await getOwnedJob(supabase, user.id, jobId) };
     } catch (error) {
         return failure(error, 'The job could not be analyzed');
@@ -210,7 +210,7 @@ export async function updateApplicationDraft(
 
         if (updateError || !data) throw updateError ?? new Error('Update failed');
 
-        revalidatePath('/dashboard/job-posts');
+        revalidateApplicationPaths(current.job_id);
         return { success: true, data: data as ApplicationEmail };
     } catch (error) {
         return failure(error, 'The draft could not be saved');

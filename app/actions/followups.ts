@@ -1,7 +1,7 @@
 'use server';
 
-import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { revalidateApplicationPaths } from '@/lib/applications/revalidate';
 import { applyFollowUpAction, createSupabaseManageStore, type FollowUpAction } from '@/lib/followups/manage';
 import { logger, errorFields } from '@/lib/log/logger';
 import { requireUser } from '@/lib/supabase/server';
@@ -57,7 +57,7 @@ async function runAction(jobId: string, followUpId: string, action: FollowUpActi
             return { success: false, message: result.message };
         }
 
-        revalidatePath(`/dashboard/job-posts/${jobId}`);
+        revalidateApplicationPaths(jobId);
         return { success: true, data: { status: result.status, dueAt: result.dueAt } };
     } catch (error) {
         logger.error('followup.user_action_failed', { action: action.kind, follow_up_id: followUpId, job_id: jobId, ...errorFields(error) });
