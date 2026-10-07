@@ -1,4 +1,5 @@
 import type { Job, JobStatus } from '@/lib/types/jobs'
+import { AWAITING_REPLY_STATUSES } from '@/lib/inbox/match'
 
 export const STATUS_CONFIG: Record<JobStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
     new: { label: 'New', variant: 'outline' },
@@ -21,4 +22,18 @@ export function gmailUrl(job: Job): string | null {
 // A draft can be sent only when Gmail has one and the job is still in draft.
 export function canSendEmail(job: Job): boolean {
     return job.status === 'draft_created' && Boolean(job.gmail_draft_id)
+}
+
+// Follow-up status badges. Shared by the panel and the overview. Kept out of client modules so server components can import it.
+export const STATUS_BADGE: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+    scheduled: { label: 'Scheduled', variant: 'outline' },
+    processing: { label: 'Sending now', variant: 'secondary' },
+    sent: { label: 'Sent', variant: 'default' },
+    failed: { label: 'Failed', variant: 'destructive' },
+    cancelled: { label: 'Cancelled', variant: 'outline' },
+}
+
+// Sent and not replied to yet. The same statuses the scheduler and the inbox sync treat as awaiting a reply.
+export function isAwaitingReply(status: string): boolean {
+    return (AWAITING_REPLY_STATUSES as readonly string[]).includes(status)
 }

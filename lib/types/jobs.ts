@@ -46,12 +46,16 @@ export interface Job {
     analysis_version: number | null;
     analysis_hash: string | null;
     analyzed_at: string | null;
+    replied_at: string | null;
+    reply_message_id: string | null;
+    reply_match: string | null;
     created_at: string;
     user_id: string;
 }
 
 export interface JobFilters {
     status?: JobStatus | 'all';
+    followUp?: 'upcoming' | 'failed' | 'cancelled';
     company?: string;
     location?: string;
     work_type?: string;
