@@ -1,6 +1,8 @@
 // Minimal client for the OpenAI Responses API with strict JSON-schema output.
 // The harness only needs one call shape, so a direct fetch keeps the dependency list short.
 
+import { formatOutputDebug, formatPromptDebug, promptDebugEnabled, type LlmDebugContext } from './debug';
+
 export const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4.1';
 
 interface StructuredRequest {
@@ -8,12 +10,18 @@ interface StructuredRequest {
     schema: Record<string, unknown>;
     instructions: string;
     input: string;
+    debug?: LlmDebugContext;
 }
 
-export async function generateStructured<T>({ name, schema, instructions, input }: StructuredRequest): Promise<T> {
+export async function generateStructured<T>({ name, schema, instructions, input, debug }: StructuredRequest): Promise<T> {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
         throw new Error('OPENAI_API_KEY is not configured');
+    }
+
+    // The exact text about to be sent, logged only when debugging is enabled.
+    if (debug && promptDebugEnabled()) {
+        console.log(formatPromptDebug({ model: OPENAI_MODEL, context: debug, system: instructions, user: input }));
     }
 
     const response = await fetch('https://api.openai.com/v1/responses', {
@@ -45,6 +53,15 @@ export async function generateStructured<T>({ name, schema, instructions, input 
         throw new Error('OpenAI returned no content');
     }
 
+    if (debug && promptDebugEnabled()) {
+        console.log(formatOutputDebug({
+            context: debug,
+            output: text,
+            inputTokens: payload.usage?.input_tokens,
+            outputTokens: payload.usage?.output_tokens,
+        }));
+    }
+
     try {
         return JSON.parse(text) as T;
     } catch {
@@ -60,6 +77,7 @@ interface ResponsePart {
 interface ResponsePayload {
     output_text?: string;
     output?: { content?: ResponsePart[] }[];
+    usage?: { input_tokens?: number; output_tokens?: number };
 }
 
 function extractOutputText(payload: ResponsePayload): string | null {

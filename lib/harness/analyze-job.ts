@@ -49,12 +49,13 @@ export function hashJobDescription(rawPost: string): string {
     return createHash('sha256').update(rawPost.trim()).digest('hex');
 }
 
-export async function analyzeJobDescription(rawPost: string): Promise<JobAnalysis> {
+export async function analyzeJobDescription(rawPost: string, jobId?: string): Promise<JobAnalysis> {
     const raw = await generateStructured<JobAnalysis>({
         name: 'job_analysis',
         schema: ANALYSIS_SCHEMA,
         instructions: INSTRUCTIONS,
         input: `Job posting:\n"""\n${rawPost.trim()}\n"""`,
+        debug: { stage: 'analysis', jobId: jobId ?? null },
     });
 
     return {
