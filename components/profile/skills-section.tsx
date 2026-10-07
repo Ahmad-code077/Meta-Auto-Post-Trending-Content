@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
-import { Loader2, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, X } from 'lucide-react'
 import { deleteSkill, saveSkill } from '@/app/actions/profile'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
@@ -22,6 +22,7 @@ export function parseAliases(value: string): string[] {
     return [...new Set(value.split(',').map((a) => a.trim()).filter(Boolean))].slice(0, 10)
 }
 
+// Skills are shown as pills. Click a pill to edit it, and use its cross to remove it.
 export function SkillsSection({ skills, setSkills, usage }: SkillsSectionProps) {
     const { toast } = useToast()
     const [name, setName] = useState('')
@@ -30,7 +31,9 @@ export function SkillsSection({ skills, setSkills, usage }: SkillsSectionProps) 
     const [editingId, setEditingId] = useState<string | null>(null)
     const [removeTarget, setRemoveTarget] = useState<ProfileSkill | null>(null)
 
-    // Optimistic add: the chip appears at once with a temporary id, which is replaced by the saved id.
+    const editing = skills.find((s) => s.id === editingId) ?? null
+
+    // Optimistic add: the pill appears at once with a temporary id, which is replaced by the saved id.
     const addSkill = async (event: FormEvent) => {
         event.preventDefault()
         const trimmed = name.trim()
@@ -74,7 +77,7 @@ export function SkillsSection({ skills, setSkills, usage }: SkillsSectionProps) 
 
         const result = await saveSkill({ id: skill.id, name: nextName, aliases: nextAliases })
         if (!result.success) {
-            setSkills((prev) => prev.map((s) => (s.id === skill.id ? previous : s)).sort(byName));
+            setSkills((prev) => prev.map((s) => (s.id === skill.id ? previous : s)).sort(byName))
             toast({ title: 'Could not update skill', description: result.message, variant: 'destructive' })
         }
     }
@@ -96,41 +99,61 @@ export function SkillsSection({ skills, setSkills, usage }: SkillsSectionProps) 
         }
     }
 
+    const isTemp = (skill: ProfileSkill) => skill.id.startsWith('temp-')
+
     return (
         <div className="space-y-5">
             {skills.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Add the technologies and skills you want matched against job postings.</p>
             ) : (
-                <ul className="divide-y rounded-md border">
-                    {skills.map((skill) =>
-                        editingId === skill.id ? (
-                            <li key={skill.id} className="p-3">
-                                <SkillEditor
-                                    skill={skill}
-                                    onCancel={() => setEditingId(null)}
-                                    onSave={(n, a) => updateSkill(skill, n, a)}
-                                />
-                            </li>
-                        ) : (
-                            <li key={skill.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                                <div className="min-w-0">
-                                    <p className="text-sm font-medium text-foreground">{skill.name}</p>
-                                    <p className="truncate text-xs text-muted-foreground">
-                                        {skill.aliases.length > 0 ? `Also known as ${skill.aliases.join(', ')}` : `Used in ${usage[skill.id] ?? 0} entries`}
-                                    </p>
-                                </div>
-                                <div className="flex shrink-0 items-center gap-1">
-                                    <Button variant="ghost" size="icon" onClick={() => setEditingId(skill.id)} aria-label={`Edit ${skill.name}`} disabled={skill.id.startsWith('temp-')}>
-                                        <Pencil />
-                                    </Button>
-                                    <Button variant="ghost" size="icon" onClick={() => requestRemove(skill)} aria-label={`Remove ${skill.name}`} disabled={skill.id.startsWith('temp-')}>
-                                        <Trash2 />
-                                    </Button>
-                                </div>
+                <ul className="flex flex-wrap gap-2" aria-label="Skills">
+                    {skills.map((skill) => {
+                        const count = usage[skill.id] ?? 0
+                        const isActive = editingId === skill.id
+                        return (
+                            <li
+                                key={skill.id}
+                                className={`inline-flex h-8 items-center rounded-full border pl-4 pr-1.5 text-sm transition-colors ${
+                                    isActive ? 'border-primary bg-primary/10' : 'bg-card hover:bg-accent'
+                                }`}
+                            >
+                                <button
+                                    type="button"
+                                    onClick={() => setEditingId(isActive ? null : skill.id)}
+                                    disabled={isTemp(skill)}
+                                    title={
+                                        skill.aliases.length > 0
+                                            ? `Also known as ${skill.aliases.join(', ')}. Used in ${count} ${count === 1 ? 'entry' : 'entries'}. Click to edit.`
+                                            : `Used in ${count} ${count === 1 ? 'entry' : 'entries'}. Click to edit.`
+                                    }
+                                    className="max-w-[16rem] truncate px-0.5 text-foreground disabled:opacity-60"
+                                >
+                                    {skill.name}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => requestRemove(skill)}
+                                    disabled={isTemp(skill)}
+                                    aria-label={`Remove ${skill.name}`}
+                                    className="ml-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-60"
+                                >
+                                    <X className="h-3.5 w-3.5" aria-hidden="true" />
+                                </button>
                             </li>
                         )
-                    )}
+                    })}
                 </ul>
+            )}
+
+            {editing && (
+                <div className="rounded-md border p-3">
+                    <SkillEditor
+                        key={editing.id}
+                        skill={editing}
+                        onCancel={() => setEditingId(null)}
+                        onSave={(n, a) => updateSkill(editing, n, a)}
+                    />
+                </div>
             )}
 
             <form onSubmit={addSkill} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
