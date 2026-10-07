@@ -17,7 +17,11 @@ Both products share authentication, the Supabase client, the UI primitives and t
 | Draft review, editing and SMTP send with the current resume attached | Built |
 | Follow-ups: scheduled automatically 7 days after an application, sent by the cron scheduler, with retries | Built |
 | Recruiter replies: detected over IMAP, cancels pending follow-ups | Built |
-| Follow-up drafts written by hand (manual drafts, server actions) | Built. No UI yet |
+| Command center (`/dashboard/applications`): what needs attention right now | Built |
+| Applications list: search, filter, sort and page, all in the URL | Built |
+| Activity timeline and overview on the review page | Built |
+| Generation safeguards: two-call cap per generation, per-user rate limit, one generation per application at a time, optional style note | Built |
+| Follow-up drafts written by hand, manual cancel, reschedule and retry | Built |
 | Personal profile: details, skills, experience, projects, resume (`/dashboard/profile`) | Built |
 | Approve and reject posts | Server actions exist. No UI yet |
 | Hashtag management, auto-replies, resume parsing | Not in this repo |
@@ -57,6 +61,7 @@ Access is admin-only. Signup is disabled, so create the admin user in the Supaba
 | `IMAP_USER` / `IMAP_PASS` | `lib/inbox/imap.ts` | Default to `SMTP_USER` / `SMTP_PASS`. Set them only if the mailbox differs |
 | `CRON_SECRET` | `app/api/cron/follow-ups`, `app/api/cron/inbox-sync` | Bearer token that authorizes both cron routes. Vercel Cron sends it when set on the project. Unset means the endpoints refuse every request |
 | `SUPABASE_SERVICE_ROLE_KEY` | `lib/supabase/admin.ts` | Service-role client for the scheduler, which has no user session. Server only. Bypasses row level security, so every scheduler query filters by `user_id` |
+| `LLM_DEBUG_PROMPT` | `lib/harness/debug.ts` | `true` logs the assembled prompt and the model's output. Ignored in production regardless of the value |
 | `N8N_WEBHOOK_SECRET` | Meta actions | Sent as `Authorization: Bearer` to the Meta webhooks |
 | `NEXT_PUBLIC_N8N_GENERATE_IMAGE_WEBHOOK_URL` | `app/actions/posts.ts` | Image generation webhook |
 | `NEXT_PUBLIC_N8N_PUBLISH_POST_WEBHOOK_URL` | `app/actions/posts.ts` | Publish webhook |
@@ -126,6 +131,19 @@ The model never receives the whole profile. It only sees the plan and the eviden
 **Recomputed:** match scores and the evidence ranking. They are cheap and always derive from the current profile. The ranking used for a sent email is kept in its generation record.
 
 Follow-ups use a separate pipeline. They receive the job, the previous email, and the number of days since it was sent. They receive no profile, no links and no skills. Validation rejects any new claim, link, or number not found in the earlier email.
+
+### Generation limits and the optional note
+
+Every generation -- a new draft, a regenerate, or a follow-up draft -- is one call to `runWithValidation` (`lib/harness/write.ts`), which makes at most `MAX_LLM_ATTEMPTS` (2) model calls and then stops, success or not. A generation that fails validation on both attempts raises `GenerationError('VALIDATION_FAILED')` with the last feedback, shown to the user directly; it is never retried automatically.
+
+`lib/generation/guard.ts` adds two more layers in front of that, both enforced server-side:
+
+- **One generation per application at a time.** A second request for the same job while one is running is refused, not queued.
+- **A per-user rate limit** (per minute and per hour), so a burst of clicks cannot spend an unbounded number of model calls.
+
+Both are process-local. A platform running more than one instance needs a shared store for a limit that holds across all of them; the two-call cap inside each generation holds regardless, since it is enforced per call, not per process.
+
+Regenerating a draft accepts an optional note (`USER_NOTE`), such as "make it shorter" or "focus more on backend work". It is sanitized (control characters stripped, capped at `NOTE_MAX_LENGTH`), passed to the model only inside the data block, never the instructions, and the instructions themselves say it may change style, never add a fact, a skill, a number or a link.
 
 ### Sending
 
@@ -286,11 +304,31 @@ For Gmail: enable 2-Step Verification on the account, create an app password, an
 
 Confirmed in testing: Gmail keeps the Message-ID we set on outgoing mail, so a reply's `In-Reply-To` matches it exactly, and matching by header is the normal path. The sender fallback exists for mail systems that do rewrite it.
 
+## The applications list and command center
+
+### Command center
+
+`/dashboard/applications` answers "what needs me right now?". It groups applications into what needs attention (drafts to review, failed sends, retryable follow-ups, follow-ups that may have been delivered without confirmation), upcoming follow-ups, applications awaiting a reply, recent replies, and recent applications. Each card links to its review page.
+
+Derived entirely from the `jobs` and `application_emails` rows at request time (`lib/dashboard/command-center.ts`), using the same status and follow-up rules as the scheduler and the inbox sync. Nothing is stored for the dashboard itself. Two queries: the user's jobs (up to 1000) and their email rows (up to 5000); beyond those limits the dashboard is incomplete by design, and the applications list below remains the full view.
+
+### Applications list
+
+`/dashboard/job-posts` is the full, searchable list. Search, filters, sort and page are URL parameters (`q`, `status`, `sort`, `company`, `location`, `work_type`, `page`, `followUp`), so a view survives a refresh, works with back and forward, and can be bookmarked. Invalid values fall back to the defaults (`lib/applications/list.ts`).
+
+Filtering, sorting and paging happen on the server, 10 applications per page. Each request runs a fixed number of queries, all scoped to the user. Next-follow-up sorting loads the ids of the matching applications and their due dates (up to 1000), then loads only the requested page in full. Search matches company, role, recruiter name and recruiter email, and is sanitized, so it is always literal. Filter options read up to 5000 rows; beyond that limit the list says so.
+
+### Review page
+
+`/dashboard/job-posts/<id>` shows, in order: an overview card (status, recruiter, sent time, next or latest follow-up, the resume actually sent), the draft panel (edit, regenerate with an optional note, send), the follow-up panel (cancel, reschedule, retry a scheduled or failed follow-up), and the activity timeline.
+
+The timeline is derived at request time from the job row and its `application_emails` rows (`lib/timeline/build.ts`); it is not stored separately, so it always matches the records it is built from. Events never include email text, recipients or raw error messages -- failures and cancellations are rendered through `lib/followups/messages.ts`. A reschedule is recognised from the row's last change time, so a later change to the same row does not also list the earlier reschedule.
+
 ## Using the system end to end
 
 1. **Profile** (`/dashboard/profile`): details and links, skills, experience, projects, and the resume. The profile is the only source the harness uses.
 2. **New application** (`/dashboard/job-posts/new`): paste the job posting. It is analyzed, matched against the profile, and a draft is written.
-3. **Review** (`/dashboard/job-posts/<id>`): edit the subject and body, see which profile entries the draft is based on, regenerate, or send. Sending requires saved edits, and attaches the resume that is current at send time.
+3. **Review** (`/dashboard/job-posts/<id>`): the overview, the draft (edit, regenerate, or send), the follow-up panel, and the timeline. Sending requires saved edits, and attaches the resume that is current at send time.
 
 ## Data model
 
@@ -314,6 +352,8 @@ Skills are stored once and linked from experiences and projects. Skill names are
 ## Tests
 
 Inbox matching, the sync, and the scheduler's reply checks are covered by `tests/inbox.test.ts` and `tests/followups.test.ts`. They use in-memory stores and providers, so no mailbox, Supabase or OpenAI is contacted.
+
+The applications list, the command center, the timeline, the follow-up panel's actions, the generation guard and the debug logger each have their own test file (`tests/applications-list.test.ts`, `dashboard.test.ts`, `timeline.test.ts`, `followup-actions.test.ts`, `generation.test.ts`, `generation-attempts.test.ts`, `llm-debug.test.ts`).
 
 `npm test` compiles `tests/` with the TypeScript compiler already in the repo, and runs each file with Node's built-in test runner. No new dependency is needed, and no test calls OpenAI, SMTP or Supabase. The scheduler tests run the real state machine against an in-memory store that follows the same conditional-write rules as the database. Those rules are checked by the tests, not by a live database, so a real two-worker race in production is still worth a manual check.
 
