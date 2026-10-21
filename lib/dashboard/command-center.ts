@@ -245,6 +245,13 @@ function latest<T extends { created_at: string }>(items: T[]): T | undefined {
     return [...items].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
 }
 
+// Whether sendJobEmail(jobId) would find a draft/failed row to send right now. Mirrors its own query
+// (app/actions/applications.ts): only review_draft (a draft is ready) and resend (the last send failed)
+// correspond to such a row. retry_follow_up/check_sent_folder are the scheduler's own retry path, not this.
+export function canSendDraft(card: Pick<ApplicationCard, 'nextAction'>): boolean {
+    return card.nextAction.kind === 'review_draft' || card.nextAction.kind === 'resend';
+}
+
 // Short label for a next action. Used for the button or text in every section of the dashboard.
 export function nextActionLabel(action: NextAction): string {
     switch (action.kind) {

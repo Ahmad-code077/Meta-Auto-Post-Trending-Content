@@ -3,24 +3,24 @@
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { format, formatDistanceToNow } from 'date-fns';
-import { ExternalLink, Mail } from 'lucide-react';
+import { Mail } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { canSendDraft, type ApplicationCard } from '@/lib/dashboard/command-center';
 import type { Job } from '@/lib/types/jobs';
-import { canSendEmail, gmailUrl, STATUS_CONFIG } from './job-meta';
+import { STATUS_CONFIG } from './job-meta';
 
 interface JobDetailsDialogProps {
     job: Job | null;
+    card: ApplicationCard | null;
     open: boolean;
     onClose: () => void;
     onSend: (job: Job) => void;
 }
 
-export function JobDetailsDialog({ job, open, onClose, onSend }: JobDetailsDialogProps) {
+export function JobDetailsDialog({ job, card, open, onClose, onSend }: JobDetailsDialogProps) {
     if (!job) return null;
-
-    const emailUrl = gmailUrl(job);
 
     return (
         <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -84,27 +84,17 @@ export function JobDetailsDialog({ job, open, onClose, onSend }: JobDetailsDialo
                     </section>
                 )}
 
-                <DialogFooter className="gap-2 border-t pt-4 sm:justify-between">
-                    {emailUrl ? (
-                        <Button variant="outline" asChild>
-                            <a href={emailUrl} target="_blank" rel="noopener noreferrer">
-                                <ExternalLink />
-                                Open in Gmail
-                            </a>
+                <DialogFooter className="gap-2 border-t pt-4">
+                    <Button variant="outline" onClick={onClose}>Close</Button>
+                    <Button variant="outline" asChild onClick={onClose}>
+                        <Link href={`/dashboard/job-posts/${job.id}`}>Review draft</Link>
+                    </Button>
+                    {card && canSendDraft(card) && (
+                        <Button onClick={() => onSend(job)}>
+                            <Mail />
+                            Send email
                         </Button>
-                    ) : <span />}
-                    <div className="flex gap-2">
-                        <Button variant="outline" onClick={onClose}>Close</Button>
-                        <Button variant="outline" asChild onClick={onClose}>
-                            <Link href={`/dashboard/job-posts/${job.id}`}>Review draft</Link>
-                        </Button>
-                        {canSendEmail(job) && (
-                            <Button onClick={() => onSend(job)}>
-                                <Mail />
-                                Send email
-                            </Button>
-                        )}
-                    </div>
+                    )}
                 </DialogFooter>
             </DialogContent>
         </Dialog>

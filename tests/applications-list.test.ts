@@ -17,6 +17,7 @@ import {
     type ListQuery,
 } from '../lib/applications/list'
 import { loadApplicationsPage } from '../lib/data/applications'
+import { canSendDraft, type NextAction } from '../lib/dashboard/command-center'
 import { setLogSink } from '../lib/log/logger'
 
 setLogSink(() => {})
@@ -202,6 +203,35 @@ test('ties are broken deterministically, whatever the input order', () => {
     assert.deepEqual([...same].sort(compareNextFollowUp).map((i) => i.id), expected)
     assert.deepEqual([...same].reverse().sort(compareNextFollowUp).map((i) => i.id), expected)
     assert.deepEqual([...same].sort((x, y) => (x.id < y.id ? 1 : -1)).sort(compareNextFollowUp).map((i) => i.id), expected)
+})
+
+// ---------------------------------------------------------------------------
+// Send button visibility: canSendDraft must track exactly what sendJobEmail can act on
+// ---------------------------------------------------------------------------
+
+function action(kind: NextAction['kind']): NextAction {
+    // followUpNumber/dueAt are irrelevant to canSendDraft; only the kind is read.
+    return { kind, attention: true, followUpNumber: 1, dueAt: '2026-10-05T09:00:00.000Z' } as NextAction
+}
+
+test('a ready-to-send draft, or a failed send that can be resent, is sendable', () => {
+    assert.equal(canSendDraft({ nextAction: action('review_draft') }), true)
+    assert.equal(canSendDraft({ nextAction: action('resend') }), true)
+})
+
+test('a replied, closed, waiting or cancelled application is never sendable', () => {
+    for (const kind of [
+        'replied',
+        'none',
+        'waiting_for_reply',
+        'follow_up_scheduled',
+        'follow_up_sending',
+        'create_draft',
+        'retry_follow_up',
+        'check_sent_folder',
+    ] as const) {
+        assert.equal(canSendDraft({ nextAction: action(kind) }), false, kind)
+    }
 })
 
 // ---------------------------------------------------------------------------

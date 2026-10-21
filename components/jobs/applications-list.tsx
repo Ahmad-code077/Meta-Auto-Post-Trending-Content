@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
-import { ExternalLink, Eye, Loader2, Mail, Plus } from 'lucide-react'
+import { Eye, Loader2, Mail, Plus } from 'lucide-react'
 import { sendJobEmail } from '@/app/actions/applications'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -14,11 +14,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useToast } from '@/hooks/use-toast'
 import { buildListHref, hasActiveFilters, LIST_PATH, type ListQuery } from '@/lib/applications/list'
 import type { ApplicationsPage } from '@/lib/data/applications'
-import { nextActionLabel, type ApplicationCard } from '@/lib/dashboard/command-center'
+import { canSendDraft, nextActionLabel, type ApplicationCard } from '@/lib/dashboard/command-center'
 import type { Job } from '@/lib/types/jobs'
 import { cn } from '@/lib/utils'
 import { JobDetailsDialog } from './job-details-dialog'
-import { STATUS_CONFIG, gmailUrl, canSendEmail, isAwaitingReply } from './job-meta'
+import { STATUS_CONFIG, isAwaitingReply } from './job-meta'
 
 interface ApplicationsListProps {
     page: ApplicationsPage
@@ -31,7 +31,7 @@ export function ApplicationsList({ page, query }: ApplicationsListProps) {
     const router = useRouter()
     const { toast } = useToast()
     const [sendTarget, setSendTarget] = useState<Job | null>(null)
-    const [detail, setDetail] = useState<{ job: Job; open: boolean } | null>(null)
+    const [detail, setDetail] = useState<{ job: Job; card: ApplicationCard; open: boolean } | null>(null)
     const [sendingId, setSendingId] = useState<string | null>(null)
     const [isSending, startSending] = useTransition()
 
@@ -104,7 +104,7 @@ export function ApplicationsList({ page, query }: ApplicationsListProps) {
                                             {nextActionLabel(card.nextAction)}
                                         </TableCell>
                                         <TableCell>
-                                            <Actions job={job} sending={sendingId === job.id} onView={() => setDetail({ job, open: true })} onSend={requestSend} />
+                                            <Actions job={job} card={card} sending={sendingId === job.id} onView={() => setDetail({ job, card, open: true })} onSend={requestSend} />
                                         </TableCell>
                                     </TableRow>
                                 ))}
@@ -148,7 +148,7 @@ export function ApplicationsList({ page, query }: ApplicationsListProps) {
                                     <span className={cn('text-sm', card.nextAction.attention ? 'font-medium text-primary' : 'text-muted-foreground')}>
                                         {nextActionLabel(card.nextAction)}
                                     </span>
-                                    <Actions job={job} sending={sendingId === job.id} onView={() => setDetail({ job, open: true })} onSend={requestSend} />
+                                    <Actions job={job} card={card} sending={sendingId === job.id} onView={() => setDetail({ job, card, open: true })} onSend={requestSend} />
                                 </div>
                             </Card>
                         ))}
@@ -160,6 +160,7 @@ export function ApplicationsList({ page, query }: ApplicationsListProps) {
 
             <JobDetailsDialog
                 job={detail?.job ?? null}
+                card={detail?.card ?? null}
                 open={detail?.open ?? false}
                 onClose={() => setDetail(null)}
                 onSend={requestSend}
@@ -212,21 +213,13 @@ function StatusCell({ job, card, align = 'start' }: { job: Job; card: Applicatio
     )
 }
 
-function Actions({ job, sending, onView, onSend }: { job: Job; sending: boolean; onView: () => void; onSend: (job: Job) => void }) {
-    const emailUrl = gmailUrl(job)
+function Actions({ job, card, sending, onView, onSend }: { job: Job; card: ApplicationCard; sending: boolean; onView: () => void; onSend: (job: Job) => void }) {
     return (
         <div className="flex items-center justify-end gap-1">
-            {emailUrl && (
-                <Button variant="ghost" size="icon" asChild>
-                    <a href={emailUrl} target="_blank" rel="noopener noreferrer" aria-label="Open email in Gmail" title="Open in Gmail">
-                        <ExternalLink />
-                    </a>
-                </Button>
-            )}
             <Button variant="ghost" size="icon" onClick={onView} aria-label="View details" title="View details">
                 <Eye />
             </Button>
-            {canSendEmail(job) && (
+            {canSendDraft(card) && (
                 <Button size="sm" onClick={() => onSend(job)} disabled={sending}>
                     {sending ? <Loader2 className="animate-spin" /> : <Mail />}
                     {sending ? 'Sending' : 'Send'}
