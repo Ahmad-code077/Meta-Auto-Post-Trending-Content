@@ -7,7 +7,7 @@ import { containsPhrase, normalizeText } from '../lib/harness/text'
 import { matchProfile } from '../lib/harness/match'
 import { buildWritingPlan } from '../lib/harness/plan'
 import { validateGeneratedEmail, type ValidationContext } from '../lib/harness/validate'
-import type { GeneratedEmail } from '../lib/types/applications'
+import type { EvidenceItem, GeneratedEmail } from '../lib/types/applications'
 import type { JobAnalysis } from '../lib/types/jobs'
 import type { ProfileSnapshot } from '../lib/types/profile'
 import { detailsSchema, experienceSchema, optionalDate, projectSchema, skillSchema } from '../lib/validation/profile'
@@ -89,6 +89,21 @@ test('a project qualifies through a matched required skill even when its wording
     assert.ok(evidence.some((e) => e.source_name === 'Job Scraper' && e.text.startsWith('Scrapes')))
 })
 
+test('evidence skills are limited to what this job requests, not every skill the source has', () => {
+    const wideProfile: ProfileSnapshot = {
+        ...profile,
+        skills: [...profile.skills, { id: id(4), name: 'Docker', normalized_name: 'docker', aliases: [] }],
+        experiences: [{ ...profile.experiences[0], skill_ids: [...profile.experiences[0].skill_ids, id(4)] }],
+    }
+    const { evidence } = matchProfile(analysis, wideProfile, NOW)
+    const fromExperience = evidence.filter((e) => e.source === 'experience')
+    assert.ok(fromExperience.length > 0)
+    for (const item of fromExperience) {
+        assert.ok(item.skills.includes('Python'), 'a skill this job requests is kept')
+        assert.ok(!item.skills.includes('Docker'), 'a skill this job does not ask for is trimmed, even though the source has it')
+    }
+})
+
 test('the plan carries links only when they are allowed, and always names the gaps', () => {
     const match = matchProfile(analysis, profile, NOW)
     const first = buildWritingPlan({ analysis, profile, match, includeLinks: true })
@@ -100,7 +115,6 @@ test('the plan carries links only when they are allowed, and always names the ga
 
 const match = matchProfile(analysis, profile, NOW)
 const plan = buildWritingPlan({ analysis, profile, match, includeLinks: true })
-const E1 = match.evidence[0].id
 
 const ctx: ValidationContext = {
     kind: 'application', plan, evidence: match.evidence, profile,
@@ -111,7 +125,6 @@ const ctx: ValidationContext = {
 const goodEmail: GeneratedEmail = {
     subject: 'Backend Engineer application',
     body: 'I am applying for the Backend Engineer role at Globex. At Acme I built data pipelines in Python and cut API latency by 40% through query tuning. I would welcome a short call.',
-    citations: [{ sentence: 'At Acme I built data pipelines in Python', evidence_ids: [E1] }],
     skills_referenced: ['Python'],
 }
 
@@ -124,14 +137,45 @@ test('validation rejects a number that is not in the source material', () => {
     assert.ok(validateGeneratedEmail(e, ctx).some((m) => m.includes('12')))
 })
 
+test('a digit inside a real skill name attached to the evidence, like S3 or EC2, is allowed', () => {
+    const evidenceWithDigitSkills: EvidenceItem[] = [{
+        id: 'E1', source: 'experience', source_id: 'exp-1', source_name: 'Backend Engineer at Acme',
+        text: 'Deployed services to AWS', skills: ['AWS S3', 'AWS EC2'], score: 1,
+    }]
+    const e = {
+        ...goodEmail,
+        body: 'I am applying for the Backend Engineer role at Globex. At Acme I deployed services using AWS S3 and EC2 for storage and compute. I would welcome a short call.',
+        skills_referenced: [],
+    }
+    assert.deepEqual(validateGeneratedEmail(e, { ...ctx, evidence: evidenceWithDigitSkills }), [])
+})
+
+test('a matched skill mentioned in the body and backed by the selected evidence is accepted even if the model forgot to list it in skills_referenced', () => {
+    const evidenceWithAws: EvidenceItem[] = [{
+        id: 'E1', source: 'experience', source_id: 'exp-1', source_name: 'Backend Engineer at Acme',
+        text: 'Deployed services to AWS', skills: ['AWS'], score: 1,
+    }]
+    const planWithAws = { ...plan, matched_skills: [...plan.matched_skills, 'AWS'] }
+    const e = {
+        ...goodEmail,
+        body: 'I am applying for the Backend Engineer role at Globex. At Acme I deployed services to AWS for production workloads. I would welcome a short call.',
+        skills_referenced: [],
+    }
+    assert.deepEqual(validateGeneratedEmail(e, { ...ctx, plan: planWithAws, evidence: evidenceWithAws }), [])
+})
+
+// The two failure modes the reconciliation above must not weaken -- a skill not in the profile
+// ('validation rejects skills that are not in the profile') and a gap skill ('validation rejects
+// claims about a gap skill') -- are already covered by the existing tests below, unchanged.
+
+test('an invented statistic, like a made-up percentage, is still rejected', () => {
+    const e = { ...goodEmail, body: goodEmail.body + ' I have mentored 99% of engineers on my team.' }
+    assert.ok(validateGeneratedEmail(e, ctx).some((m) => m.includes('99')))
+})
+
 test('validation rejects claims about a gap skill', () => {
     const e = { ...goodEmail, body: goodEmail.body + ' I have hands-on Kubernetes experience.' }
     assert.ok(validateGeneratedEmail(e, ctx).some((m) => m.includes('Kubernetes')))
-})
-
-test('validation rejects citations to evidence that does not exist', () => {
-    const e = { ...goodEmail, citations: [{ sentence: 'x', evidence_ids: ['E99'] }] }
-    assert.ok(validateGeneratedEmail(e, ctx).some((m) => m.includes('E99')))
 })
 
 test('validation rejects skills that are not in the profile', () => {
@@ -149,9 +193,9 @@ test('validation requires the email to name the job', () => {
     assert.ok(validateGeneratedEmail(e, ctx).some((m) => m.includes('specific')))
 })
 
-test('a follow-up may not cite evidence or name skills, and must stay short', () => {
+test('a follow-up may not name candidate skills, and must stay short', () => {
     const followUp: ValidationContext = { ...ctx, kind: 'follow_up', plan: null, evidence: [], minWords: 5, maxWords: 90 }
-    const ok = { subject: 'Following up', body: 'Following up on the Backend Engineer role at Globex. Is there an update I can share?', citations: [], skills_referenced: [] }
+    const ok = { subject: 'Following up', body: 'Following up on the Backend Engineer role at Globex. Is there an update I can share?', skills_referenced: [] }
     assert.deepEqual(validateGeneratedEmail(ok, followUp), [])
     const withSkill = { ...ok, skills_referenced: ['Python'] }
     assert.ok(validateGeneratedEmail(withSkill, followUp).some((m) => m.includes('skills')))

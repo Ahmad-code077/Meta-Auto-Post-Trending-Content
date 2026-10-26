@@ -67,6 +67,12 @@ export function requestedSkillsFrom(analysis: JobAnalysis, skills: ProfileSkill[
 export function matchProfile(analysis: JobAnalysis, profile: ProfileSnapshot, now = new Date()): MatchResult {
     const requestedSkills = requestedSkillsFrom(analysis, profile.skills);
     const skillNameById = new Map(profile.skills.map((s) => [s.id, s.name]));
+    // Evidence only lists skills this job actually asks for, not every skill ever linked to the
+    // source. Otherwise every bullet from the same experience carries its whole skill list (which
+    // can be 30+ names), most of it irrelevant, and the writer's prompt balloons with noise.
+    const requestedSkillIds = new Set(
+        requestedSkills.map((s) => s.profileSkillId).filter((id): id is string => id !== null)
+    );
 
     const requirementTokens = new Set(
         analysis.requirements.flatMap((r) => tokens(r.text))
@@ -120,7 +126,7 @@ export function matchProfile(analysis: JobAnalysis, profile: ProfileSnapshot, no
         const fallback = picked.length === 0 && candidate.bullets.length > 0 ? [candidate.bullets[0]] : picked;
 
         for (const bullet of fallback) {
-            evidence.push(evidenceFromExperience(experience, bullet.text, bullet.score + candidate.score / 10, skillNameById));
+            evidence.push(evidenceFromExperience(experience, bullet.text, bullet.score + candidate.score / 10, skillNameById, requestedSkillIds));
         }
     }
 
@@ -133,7 +139,7 @@ export function matchProfile(analysis: JobAnalysis, profile: ProfileSnapshot, no
                 source_id: candidate.project.id,
                 source_name: candidate.project.name,
                 text: item.text,
-                skills: skillNamesFor(candidate.project.skill_ids, skillNameById),
+                skills: skillNamesFor(candidate.project.skill_ids.filter((id) => requestedSkillIds.has(id)), skillNameById),
                 score: item.score + candidate.score / 10,
             });
         }
@@ -155,7 +161,8 @@ function evidenceFromExperience(
     experience: Experience,
     text: string,
     score: number,
-    skillNameById: Map<string, string>
+    skillNameById: Map<string, string>,
+    requestedSkillIds: ReadonlySet<string>
 ): EvidenceItem {
     return {
         id: '',
@@ -163,7 +170,7 @@ function evidenceFromExperience(
         source_id: experience.id,
         source_name: `${experience.role} at ${experience.company}`,
         text,
-        skills: skillNamesFor(experience.skill_ids, skillNameById),
+        skills: skillNamesFor(experience.skill_ids.filter((id) => requestedSkillIds.has(id)), skillNameById),
         score,
     };
 }

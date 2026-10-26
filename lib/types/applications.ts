@@ -50,11 +50,6 @@ export interface WritingPlan {
     max_words: number;
 }
 
-export interface Citation {
-    sentence: string;
-    evidence_ids: string[];
-}
-
 // Stored with every generated email in application_emails.generation.
 export interface GenerationRecord {
     model: string;
@@ -63,7 +58,6 @@ export interface GenerationRecord {
     generated_at: string;
     plan: WritingPlan | null;
     evidence: EvidenceItem[];
-    citations: Citation[];
     previous_email_id: string | null;   // follow-ups only
     edited_at?: string;                  // set when the user changes the draft by hand
     user_note?: string | null;           // the optional style request the user gave for this generation
@@ -72,6 +66,5 @@ export interface GenerationRecord {
 export interface GeneratedEmail {
     subject: string;
     body: string;
-    citations: Citation[];
     skills_referenced: string[];
 }

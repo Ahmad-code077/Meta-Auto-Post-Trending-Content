@@ -117,16 +117,16 @@ job posting
   -> 2. match          (deterministic)       skill aliases, weighted skill hits, bullet overlap, recency
   -> 3. evidence       (deterministic)       best experience bullets and project descriptions, given stable ids E1..En
   -> 4. plan           (deterministic)       requested skills, matched skills, GAP skills, links allowed
-  -> 5. write          (model, structured)   sees only the plan and the evidence pack; must cite evidence ids
-  -> 6. validate       (deterministic)       every citation exists; skills exist in profile; gaps not mentioned;
-                                             no links; numbers come from the source; email names the job
+  -> 5. write          (model, structured)   sees only the plan and the evidence pack
+  -> 6. validate       (deterministic)       skills exist in profile; gaps not mentioned; no links;
+                                             numbers come from the source; email names the job
                                              one retry with the failures listed, then the run stops
   -> 7. draft          persisted to application_emails with the full generation record
 ```
 
 The model never receives the whole profile. It only sees the plan and the evidence pack, so it cannot draw on skills that were not selected. Validation runs on the output regardless, so a wrong draft is rejected even if the model ignores its instructions.
 
-**Persisted:** profile, skills, experiences, projects, resume versions, job analysis (cached on `jobs.analysis` by a hash of the posting), drafts, and their generation record (plan, evidence, citations, model, prompt version, attempts).
+**Persisted:** profile, skills, experiences, projects, resume versions, job analysis (cached on `jobs.analysis` by a hash of the posting), drafts, and their generation record (plan, evidence, model, prompt version, attempts).
 
 **Recomputed:** match scores and the evidence ranking. They are cheap and always derive from the current profile. The ranking used for a sent email is kept in its generation record.
 

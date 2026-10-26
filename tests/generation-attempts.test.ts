@@ -6,8 +6,8 @@ import assert from 'node:assert/strict'
 import { GenerationError, MAX_LLM_ATTEMPTS, runWithValidation, type ModelCall } from '../lib/harness/write'
 import type { GeneratedEmail } from '../lib/types/applications'
 
-const GOOD: GeneratedEmail = { subject: 's', body: 'b', citations: [], skills_referenced: [] }
-const BAD: GeneratedEmail = { subject: 'bad', body: 'bad', citations: [], skills_referenced: [] }
+const GOOD: GeneratedEmail = { subject: 's', body: 'b', skills_referenced: [] }
+const BAD: GeneratedEmail = { subject: 'bad', body: 'bad', skills_referenced: [] }
 
 type Outcome = 'good' | 'bad' | 'throw'
 

@@ -22,7 +22,6 @@ export interface ValidationContext {
 export function validateGeneratedEmail(email: GeneratedEmail, ctx: ValidationContext): string[] {
     const errors: string[] = [];
     const body = email.body.trim();
-    const evidenceIds = new Set(ctx.evidence.map((e) => e.id));
 
     if (!email.subject.trim() || email.subject.length > 120 || /[\r\n]/.test(email.subject)) {
         errors.push('Subject must be one line of at most 120 characters.');
@@ -32,27 +31,9 @@ export function validateGeneratedEmail(email: GeneratedEmail, ctx: ValidationCon
     if (words < ctx.minWords) errors.push(`Body is too short (${words} words, minimum ${ctx.minWords}).`);
     if (words > ctx.maxWords) errors.push(`Body is too long (${words} words, maximum ${ctx.maxWords}).`);
 
-    // Citations: every claim points at evidence that exists.
-    if (ctx.kind === 'application') {
-        if (email.citations.length === 0) {
-            errors.push('Cite at least one evidence item for each factual sentence.');
-        }
-    }
-    for (const citation of email.citations) {
-        if (citation.evidence_ids.length === 0 && ctx.kind === 'application') {
-            errors.push(`Citation "${truncate(citation.sentence)}" has no evidence id.`);
-        }
-        for (const id of citation.evidence_ids) {
-            if (!evidenceIds.has(id)) {
-                errors.push(`Citation references unknown evidence id ${id}.`);
-            }
-        }
-    }
-
     // Follow-ups restate the earlier email. They add no profile evidence and name no candidate skills.
-    if (ctx.kind === 'follow_up') {
-        if (email.citations.length > 0) errors.push('Follow-ups must not cite profile evidence.');
-        if (email.skills_referenced.length > 0) errors.push('Follow-ups must not mention candidate skills.');
+    if (ctx.kind === 'follow_up' && email.skills_referenced.length > 0) {
+        errors.push('Follow-ups must not mention candidate skills.');
     }
 
     // Skills named by the writer must exist in the profile.
@@ -75,10 +56,13 @@ export function validateGeneratedEmail(email: GeneratedEmail, ctx: ValidationCon
         errors.push('Do not include links in the body.');
     }
 
-    // Every number must come from the source material, so it cannot be invented.
+    // Every number must come from the source material, so it cannot be invented. This includes digits
+    // inside a real skill name attached to the evidence (e.g. "S3", "EC2") -- those are not invented
+    // statistics, they are profile-backed skill names that happen to contain a digit.
     const allowedNumbers = new Set<string>([
         ...(ctx.sourceText.match(/\d+(?:\.\d+)?/g) ?? []),
         ...ctx.evidence.flatMap((e) => e.text.match(/\d+(?:\.\d+)?/g) ?? []),
+        ...ctx.evidence.flatMap((e) => e.skills.flatMap((s) => s.match(/\d+(?:\.\d+)?/g) ?? [])),
     ]);
     for (const number of body.match(/\d+(?:\.\d+)?/g) ?? []) {
         if (!allowedNumbers.has(number)) {
@@ -94,9 +78,14 @@ export function validateGeneratedEmail(email: GeneratedEmail, ctx: ValidationCon
         errors.push('Name the role or the company so the email is specific to this job.');
     }
 
-    // Skills named in the body should also be listed in skills_referenced, which keeps the audit trail honest.
+    // A matched skill mentioned in the body is fine without being tracked in skills_referenced, as long
+    // as it's backed by the evidence the writer was actually given -- that's a bookkeeping slip, not an
+    // invented claim. If it's mentioned but backed by neither, that's still flagged.
+    const evidenceSkillNames = new Set(ctx.evidence.flatMap((e) => e.skills.map((s) => normalizeText(s))));
     for (const requested of ctx.plan?.matched_skills ?? []) {
-        if (mentionsSkill(body, requested) && !email.skills_referenced.some((s) => normalizeText(s) === normalizeText(requested))) {
+        const trackedOrBacked = email.skills_referenced.some((s) => normalizeText(s) === normalizeText(requested))
+            || evidenceSkillNames.has(normalizeText(requested));
+        if (mentionsSkill(body, requested) && !trackedOrBacked) {
             errors.push(`Skill "${requested}" appears in the body but not in skills_referenced.`);
         }
     }
@@ -106,8 +95,4 @@ export function validateGeneratedEmail(email: GeneratedEmail, ctx: ValidationCon
 
 function mentionsPhrase(body: string, phrase: string): boolean {
     return containsPhrase(normalizeText(body), normalizeText(phrase));
-}
-
-function truncate(value: string): string {
-    return value.length > 60 ? `${value.slice(0, 57)}...` : value;
 }

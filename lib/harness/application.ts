@@ -130,7 +130,6 @@ export async function createApplicationDraft(
         generated_at: new Date().toISOString(),
         plan,
         evidence: match.evidence,
-        citations: email.citations,
         previous_email_id: null,
         user_note: options.note ?? null,
     };
@@ -223,7 +222,6 @@ export async function generateFollowUpContent(
             generated_at: new Date().toISOString(),
             plan: null,
             evidence: [],
-            citations: [],
             previous_email_id: previous.id,
         },
         previous: {

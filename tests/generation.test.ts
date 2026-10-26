@@ -22,10 +22,9 @@ const GOOD: GeneratedEmail = {
     subject: 'Backend Engineer application',
     body: 'I am applying for the Backend Engineer role at Globex. At Acme I built data pipelines in Python, and I would welcome a short call to discuss how that work applies to your team. '
         + 'I have worked on services that process large volumes of records, and I am comfortable owning a service from design through production.',
-    citations: [{ sentence: 'At Acme I built data pipelines in Python', evidence_ids: ['E1'] }],
     skills_referenced: [],
 }
-const BAD: GeneratedEmail = { subject: 'bad', body: 'too short', citations: [], skills_referenced: [] }
+const BAD: GeneratedEmail = { subject: 'bad', body: 'too short', skills_referenced: [] }
 
 const analysis: JobAnalysis = {
     title: 'Backend Engineer', company: 'Globex', recruiter_name: null, recruiter_email: null,
