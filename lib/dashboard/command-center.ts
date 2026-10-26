@@ -19,6 +19,7 @@ export interface DashboardJob {
     created_at: string;
     sent_at: string | null;
     replied_at: string | null;
+    dismissed_at: string | null;
 }
 
 export interface DashboardEmail {
@@ -75,6 +76,7 @@ export interface UpcomingFollowUp {
 export interface CommandCenter {
     total: number;
     counts: { needsAttention: number; upcoming: number; waiting: number; replied: number };
+    dismissedCount: number;
     needsAttention: ApplicationCard[];
     upcomingFollowUps: UpcomingFollowUp[];
     waiting: ApplicationCard[];
@@ -105,7 +107,11 @@ export function buildCommandCenter(input: {
     emails: DashboardEmail[];
 }): CommandCenter {
     // Defence in depth: rows that are not this user's are dropped, even though the queries already filter them.
-    const jobs = input.jobs.filter((j) => j.user_id === input.userId);
+    const ownJobs = input.jobs.filter((j) => j.user_id === input.userId);
+    // Dismissed jobs are hidden from every section below, but kept (not deleted, not cancelled) and
+    // still visible on the applications list page, which reads from a different query entirely.
+    const jobs = ownJobs.filter((j) => !j.dismissed_at);
+    const dismissedCount = ownJobs.length - jobs.length;
     const emails = input.emails.filter((e) => e.user_id === input.userId);
 
     const emailsByJob = new Map<string, DashboardEmail[]>();
@@ -153,6 +159,7 @@ export function buildCommandCenter(input: {
             waiting: waiting.length,
             replied: replied.length,
         },
+        dismissedCount,
         needsAttention,
         upcomingFollowUps,
         waiting,

@@ -10,6 +10,7 @@ import {
     hasActiveFilters,
     matchesStatus,
     pageWindow,
+    paginationItems,
     parseListQuery,
     PAGE_SIZE,
     sanitizeSearch,
@@ -203,6 +204,43 @@ test('ties are broken deterministically, whatever the input order', () => {
     assert.deepEqual([...same].sort(compareNextFollowUp).map((i) => i.id), expected)
     assert.deepEqual([...same].reverse().sort(compareNextFollowUp).map((i) => i.id), expected)
     assert.deepEqual([...same].sort((x, y) => (x.id < y.id ? 1 : -1)).sort(compareNextFollowUp).map((i) => i.id), expected)
+})
+
+// ---------------------------------------------------------------------------
+// Numbered pagination: page 1 and the last page always shown, one sibling each side, ellipsis for gaps
+// ---------------------------------------------------------------------------
+
+test('a single page shows just that page, no ellipsis', () => {
+    assert.deepEqual(paginationItems(1, 1), [1])
+})
+
+test('three pages are few enough to show in full, whichever one is current', () => {
+    assert.deepEqual(paginationItems(1, 3), [1, 2, 3])
+    assert.deepEqual(paginationItems(2, 3), [1, 2, 3])
+    assert.deepEqual(paginationItems(3, 3), [1, 2, 3])
+})
+
+test('ten pages, current at the start: siblings plus one ellipsis before the last page', () => {
+    assert.deepEqual(paginationItems(1, 10), [1, 2, 'ellipsis', 10])
+})
+
+test('ten pages, current in the middle: an ellipsis on both sides', () => {
+    assert.deepEqual(paginationItems(5, 10), [1, 'ellipsis', 4, 5, 6, 'ellipsis', 10])
+})
+
+test('ten pages, current at the end: one ellipsis after the first page', () => {
+    assert.deepEqual(paginationItems(10, 10), [1, 'ellipsis', 9, 10])
+})
+
+test('there is never more than one ellipsis token in a row', () => {
+    for (let total = 1; total <= 30; total++) {
+        for (let current = 1; current <= total; current++) {
+            const items = paginationItems(current, total)
+            for (let i = 1; i < items.length; i++) {
+                assert.ok(!(items[i] === 'ellipsis' && items[i - 1] === 'ellipsis'), `total=${total} current=${current}`)
+            }
+        }
+    }
 })
 
 // ---------------------------------------------------------------------------

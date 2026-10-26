@@ -1,19 +1,26 @@
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import { CommandCenter } from '@/components/jobs/command-center'
+import { DismissedJobsList } from '@/components/jobs/dismissed-jobs-list'
 import { Button } from '@/components/ui/button'
 import { buildCommandCenter, type DashboardEmail, type DashboardJob } from '@/lib/dashboard/command-center'
 import { requireUser } from '@/lib/supabase/server'
 
 // Two queries for the whole dashboard, both scoped to the signed-in user. Everything else is derived in memory,
 // so the page does not run one query per application.
-export default async function ApplicationsDashboardPage() {
+export default async function ApplicationsDashboardPage({
+    searchParams,
+}: {
+    searchParams: Promise<{ dismissed?: string }>
+}) {
+    const { dismissed } = await searchParams
+    const showDismissed = dismissed === '1'
     const { supabase, user } = await requireUser()
 
     const [jobsResult, emailsResult] = await Promise.all([
         supabase
             .from('jobs')
-            .select('id, user_id, title, company, recruiter_name, recruiter_email, status, created_at, sent_at, replied_at')
+            .select('id, user_id, title, company, recruiter_name, recruiter_email, status, created_at, sent_at, replied_at, dismissed_at')
             .eq('user_id', user.id)
             .order('created_at', { ascending: false })
             .limit(1000),
@@ -29,11 +36,29 @@ export default async function ApplicationsDashboardPage() {
         throw new Error('Could not load your applications')
     }
 
+    const jobs = (jobsResult.data ?? []) as DashboardJob[]
     const data = buildCommandCenter({
         userId: user.id,
-        jobs: (jobsResult.data ?? []) as DashboardJob[],
+        jobs,
         emails: (emailsResult.data ?? []) as DashboardEmail[],
     })
+
+    if (showDismissed) {
+        const dismissedJobs = jobs.filter((j) => j.user_id === user.id && j.dismissed_at)
+        return (
+            <div className="mx-auto max-w-6xl space-y-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-muted-foreground">
+                        Dismissed applications. Restore one to bring it back to the Command Center.
+                    </p>
+                    <Button variant="outline" asChild>
+                        <Link href="/dashboard/applications">Back to Command Center</Link>
+                    </Button>
+                </div>
+                <DismissedJobsList jobs={dismissedJobs} />
+            </div>
+        )
+    }
 
     return (
         <div className="mx-auto max-w-6xl space-y-6">
@@ -41,12 +66,19 @@ export default async function ApplicationsDashboardPage() {
                 <p className="text-sm text-muted-foreground">
                     Everything that needs you, in one place. Open an application to review it.
                 </p>
-                <Button asChild>
-                    <Link href="/dashboard/job-posts/new">
-                        <Plus />
-                        New application
-                    </Link>
-                </Button>
+                <div className="flex gap-2">
+                    {data.dismissedCount > 0 && (
+                        <Button variant="outline" asChild>
+                            <Link href="/dashboard/applications?dismissed=1">Show dismissed ({data.dismissedCount})</Link>
+                        </Button>
+                    )}
+                    <Button asChild>
+                        <Link href="/dashboard/job-posts/new">
+                            <Plus />
+                            New application
+                        </Link>
+                    </Button>
+                </div>
             </div>
 
             <CommandCenter data={data} />

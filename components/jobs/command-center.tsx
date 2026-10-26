@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { nextActionLabel, type ApplicationCard, type CommandCenter as CommandCenterData, type UpcomingFollowUp } from '@/lib/dashboard/command-center'
 import { cn } from '@/lib/utils'
+import { DismissJobButton } from './job-dismiss'
 import { STATUS_CONFIG } from './job-meta'
 
 // Presentational only. The data is derived by buildCommandCenter on the server.
@@ -103,6 +104,7 @@ export function CommandCenter({ data }: { data: CommandCenterData }) {
                                 <TableHead>Sent</TableHead>
                                 <TableHead>Next follow-up</TableHead>
                                 <TableHead className="min-w-[180px]">Next action</TableHead>
+                                <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -117,6 +119,9 @@ export function CommandCenter({ data }: { data: CommandCenterData }) {
                                     <TableCell className="text-sm text-muted-foreground">{card.sentAt ? format(new Date(card.sentAt), 'PPP p') : 'Not sent'}</TableCell>
                                     <TableCell className="text-sm text-muted-foreground">{card.nextFollowUp ? format(new Date(card.nextFollowUp.dueAt), 'PPP p') : 'None'}</TableCell>
                                     <TableCell className="text-sm">{nextActionLabel(card.nextAction)}</TableCell>
+                                    <TableCell className="text-right">
+                                        <DismissJobButton jobId={card.jobId} label={`${card.company || 'this role'} · ${card.title || 'Untitled role'}`} />
+                                    </TableCell>
                                 </TableRow>
                             ))}
                         </TableBody>
@@ -155,14 +160,13 @@ function StatusBadge({ status }: { status: string }) {
 
 function ApplicationRow({ card, emphasis = false }: { card: ApplicationCard; emphasis?: boolean }) {
     return (
-        <Link
-            href={reviewHref(card)}
+        <div
             className={cn(
                 'flex flex-col gap-3 rounded-md border p-4 transition-colors hover:bg-accent sm:flex-row sm:items-center sm:justify-between',
                 emphasis && 'border-primary/40'
             )}
         >
-            <div className="min-w-0 space-y-1">
+            <Link href={reviewHref(card)} className="min-w-0 flex-1 space-y-1">
                 <p className="truncate font-medium text-foreground">
                     {card.company || 'Company not set'}
                     <span className="font-normal text-muted-foreground"> · {card.title || 'Untitled role'}</span>
@@ -173,16 +177,19 @@ function ApplicationRow({ card, emphasis = false }: { card: ApplicationCard; emp
                     {card.repliedAt && <span>Replied {format(new Date(card.repliedAt), 'PPP p')}</span>}
                     {card.recruiterName && <span>{card.recruiterName}</span>}
                 </div>
+            </Link>
+            <div className="flex shrink-0 items-center gap-2">
+                <div className="text-right text-sm">
+                    <span className={cn('font-medium', emphasis ? 'text-primary' : 'text-muted-foreground')}>
+                        {nextActionLabel(card.nextAction)}
+                    </span>
+                    {card.nextFollowUp && (
+                        <div className="text-xs text-muted-foreground">Due {format(new Date(card.nextFollowUp.dueAt), 'PPP p')}</div>
+                    )}
+                </div>
+                <DismissJobButton jobId={card.jobId} label={`${card.company || 'this role'} · ${card.title || 'Untitled role'}`} />
             </div>
-            <div className="shrink-0 text-sm">
-                <span className={cn('font-medium', emphasis ? 'text-primary' : 'text-muted-foreground')}>
-                    {nextActionLabel(card.nextAction)}
-                </span>
-                {card.nextFollowUp && (
-                    <div className="text-xs text-muted-foreground">Due {format(new Date(card.nextFollowUp.dueAt), 'PPP p')}</div>
-                )}
-            </div>
-        </Link>
+        </div>
     )
 }
 

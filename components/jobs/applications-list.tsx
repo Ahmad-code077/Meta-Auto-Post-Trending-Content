@@ -4,7 +4,7 @@ import { useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
-import { Eye, Loader2, Mail, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Eye, Loader2, Mail, MoreHorizontal, Plus } from 'lucide-react'
 import { sendJobEmail } from '@/app/actions/applications'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -12,7 +12,7 @@ import { Card } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useToast } from '@/hooks/use-toast'
-import { buildListHref, hasActiveFilters, LIST_PATH, type ListQuery } from '@/lib/applications/list'
+import { buildListHref, hasActiveFilters, LIST_PATH, paginationItems, type ListQuery } from '@/lib/applications/list'
 import type { ApplicationsPage } from '@/lib/data/applications'
 import { canSendDraft, nextActionLabel, type ApplicationCard } from '@/lib/dashboard/command-center'
 import type { Job } from '@/lib/types/jobs'
@@ -232,27 +232,52 @@ function Actions({ job, card, sending, onView, onSend }: { job: Job; card: Appli
 function Pagination({ page, query }: { page: ApplicationsPage; query: ListQuery }) {
     const href = (target: number) => buildListHref(query, { page: target })
     const disabledClass = 'pointer-events-none opacity-50'
+    const items = paginationItems(page.page, page.totalPages)
 
     return (
-        <nav aria-label="Pagination" className="flex items-center justify-between gap-3">
+        <nav aria-label="Pagination" className="flex flex-wrap items-center justify-center gap-1">
             <Link
                 href={href(page.page - 1)}
                 scroll={false}
+                aria-label="Go to previous page"
                 aria-disabled={page.page <= 1}
                 tabIndex={page.page <= 1 ? -1 : undefined}
-                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), page.page <= 1 && disabledClass)}
+                className={cn(buttonVariants({ variant: 'outline', size: 'icon' }), page.page <= 1 && disabledClass)}
             >
-                Previous
+                <ChevronLeft />
             </Link>
-            <span className="text-sm text-muted-foreground tabular-nums">Page {page.page} of {page.totalPages}</span>
+
+            {items.map((item, index) =>
+                item === 'ellipsis' ? (
+                    <span
+                        key={`ellipsis-${index}`}
+                        aria-hidden="true"
+                        className="flex size-9 items-center justify-center text-muted-foreground"
+                    >
+                        <MoreHorizontal className="size-4" />
+                    </span>
+                ) : (
+                    <Link
+                        key={item}
+                        href={href(item)}
+                        scroll={false}
+                        aria-current={item === page.page ? 'page' : undefined}
+                        className={cn(buttonVariants({ variant: item === page.page ? 'outline' : 'ghost', size: 'icon' }), 'tabular-nums')}
+                    >
+                        {item}
+                    </Link>
+                )
+            )}
+
             <Link
                 href={href(page.page + 1)}
                 scroll={false}
+                aria-label="Go to next page"
                 aria-disabled={page.page >= page.totalPages}
                 tabIndex={page.page >= page.totalPages ? -1 : undefined}
-                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), page.page >= page.totalPages && disabledClass)}
+                className={cn(buttonVariants({ variant: 'outline', size: 'icon' }), page.page >= page.totalPages && disabledClass)}
             >
-                Next
+                <ChevronRight />
             </Link>
         </nav>
     )

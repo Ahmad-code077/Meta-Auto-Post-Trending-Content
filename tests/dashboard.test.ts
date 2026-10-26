@@ -30,6 +30,7 @@ function job(overrides: Partial<DashboardJob> = {}): DashboardJob {
         created_at: '2026-09-20T10:00:00.000Z',
         sent_at: '2026-09-21T10:00:00.000Z',
         replied_at: null,
+        dismissed_at: null,
         ...overrides,
     }
 }
@@ -248,6 +249,37 @@ test('recent applications are the newest by creation, and the table holds the re
     assert.equal(data.recent[0].jobId, jobs[jobs.length - 1].id)
     assert.equal(data.table.length, SECTION_LIMITS.table)
     assert.equal(data.total, jobs.length)
+})
+
+// ---------------------------------------------------------------------------
+// Dismissing jobs: hidden from every section, kept in dismissedCount, not deleted
+// ---------------------------------------------------------------------------
+
+test('a dismissed job is excluded from every section, and counted in dismissedCount, not total', () => {
+    const dismissedNew = job({ status: 'new', dismissed_at: '2026-10-01T00:00:00.000Z' })
+    const dismissedWaiting = job({ status: 'sent', dismissed_at: '2026-10-01T00:00:00.000Z' })
+    const dismissedReplied = job({ status: 'replied', replied_at: '2026-09-30T10:00:00.000Z', dismissed_at: '2026-10-01T00:00:00.000Z' })
+    const dismissedWithFollowUp = job({ status: 'sent', dismissed_at: '2026-10-01T00:00:00.000Z' })
+    const kept = job({ status: 'new' })
+
+    const data = build(
+        [dismissedNew, dismissedWaiting, dismissedReplied, dismissedWithFollowUp, kept],
+        [followUp({ job_id: dismissedWithFollowUp.id, follow_up_number: 1, status: 'scheduled', due_at: '2026-10-09T09:00:00.000Z' })]
+    )
+
+    assert.equal(data.total, 1, 'dismissed jobs do not count toward total')
+    assert.equal(data.dismissedCount, 4)
+    assert.deepEqual(data.needsAttention.map((c) => c.jobId), [kept.id])
+    assert.equal(data.waiting.some((c) => c.jobId === dismissedWaiting.id), false)
+    assert.equal(data.replied.some((c) => c.jobId === dismissedReplied.id), false)
+    assert.equal(data.upcomingFollowUps.some((u) => u.jobId === dismissedWithFollowUp.id), false)
+    assert.equal(data.recent.some((c) => c.jobId !== kept.id), false)
+    assert.equal(data.table.some((c) => c.jobId !== kept.id), false)
+})
+
+test('dismissedCount is zero when nothing is dismissed', () => {
+    const data = build([job({ status: 'new' }), job({ status: 'sent' })])
+    assert.equal(data.dismissedCount, 0)
 })
 
 // ---------------------------------------------------------------------------

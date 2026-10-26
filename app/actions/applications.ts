@@ -155,6 +155,55 @@ export async function sendJobEmail(jobId: string): Promise<ActionResult<{ emailI
     }
 }
 
+// Hides a job from the Command Center without touching its history. Idempotent: a second call
+// matches no row (it is already dismissed) and reports that instead of doing nothing silently.
+export async function dismissJob(jobId: string): Promise<ActionResult<null>> {
+    try {
+        const { supabase, user } = await requireUser();
+
+        const { data, error } = await supabase
+            .from('jobs')
+            .update({ dismissed_at: new Date().toISOString() })
+            .eq('id', jobId)
+            .eq('user_id', user.id)
+            .is('dismissed_at', null)
+            .select('id')
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!data) return { success: false, message: 'This application was already dismissed.' };
+
+        revalidateApplicationPaths(jobId);
+        return { success: true, data: null };
+    } catch (error) {
+        return failure(error, 'The application could not be dismissed');
+    }
+}
+
+// Brings a dismissed job back to the Command Center. Idempotent, same as dismissJob.
+export async function restoreJob(jobId: string): Promise<ActionResult<null>> {
+    try {
+        const { supabase, user } = await requireUser();
+
+        const { data, error } = await supabase
+            .from('jobs')
+            .update({ dismissed_at: null })
+            .eq('id', jobId)
+            .eq('user_id', user.id)
+            .not('dismissed_at', 'is', null)
+            .select('id')
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!data) return { success: false, message: 'This application is not dismissed.' };
+
+        revalidateApplicationPaths(jobId);
+        return { success: true, data: null };
+    } catch (error) {
+        return failure(error, 'The application could not be restored');
+    }
+}
+
 // Re-runs analysis for a job, for example after editing its description.
 export async function reanalyzeJob(jobId: string): Promise<ActionResult<Job>> {
     try {

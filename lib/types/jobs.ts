@@ -46,6 +46,7 @@ export interface Job {
     replied_at: string | null;
     reply_message_id: string | null;
     reply_match: string | null;
+    dismissed_at: string | null;
     created_at: string;
     user_id: string;
 }

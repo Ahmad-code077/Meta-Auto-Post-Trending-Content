@@ -166,6 +166,27 @@ export function pageWindow(page: number, total: number, size = PAGE_SIZE) {
     };
 }
 
+// A page number to link to, or a gap too large to list every page in between.
+export type PageToken = number | 'ellipsis';
+
+// Page 1 and the last page are always shown. One sibling is shown on each side of the current
+// page. Anything skipped in between becomes a single 'ellipsis' token, never more than one in a row.
+export function paginationItems(current: number, total: number): PageToken[] {
+    if (total <= 0) return [];
+    if (total === 1) return [1];
+
+    const siblingStart = Math.max(2, current - 1);
+    const siblingEnd = Math.min(total - 1, current + 1);
+
+    const items: PageToken[] = [1];
+    if (siblingStart > 2) items.push('ellipsis');
+    for (let page = siblingStart; page <= siblingEnd; page++) items.push(page);
+    if (siblingEnd < total - 1) items.push('ellipsis');
+    items.push(total);
+
+    return items;
+}
+
 // Order for "next follow-up". Applications with a due follow-up come first, soonest first. Applications without one
 // come after. Ties go to the newest application, then to the id, so the order never changes between requests.
 export interface NextFollowUpSortable {
