@@ -126,7 +126,7 @@ export function SkillsSection({ skills, setSkills, usage }: SkillsSectionProps) 
                                             ? `Also known as ${skill.aliases.join(', ')}. Used in ${count} ${count === 1 ? 'entry' : 'entries'}. Click to edit.`
                                             : `Used in ${count} ${count === 1 ? 'entry' : 'entries'}. Click to edit.`
                                     }
-                                    className="max-w-[16rem] truncate px-0.5 text-foreground disabled:opacity-60"
+                                    className="max-w-[16rem] cursor-pointer truncate px-0.5 text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                                 >
                                     {skill.name}
                                 </button>
@@ -135,7 +135,7 @@ export function SkillsSection({ skills, setSkills, usage }: SkillsSectionProps) 
                                     onClick={() => requestRemove(skill)}
                                     disabled={isTemp(skill)}
                                     aria-label={`Remove ${skill.name}`}
-                                    className="ml-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-60"
+                                    className="ml-1 inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-60"
                                 >
                                     <X className="h-3.5 w-3.5" aria-hidden="true" />
                                 </button>

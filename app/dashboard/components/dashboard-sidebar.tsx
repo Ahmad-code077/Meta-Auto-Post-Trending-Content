@@ -86,7 +86,7 @@ export default function DashboardSidebar() {
                         <button
                             type="button"
                             onClick={closeSidebar}
-                            className="rounded-md p-2 hover:bg-accent"
+                            className="cursor-pointer rounded-md p-2 hover:bg-accent"
                             aria-label="Close menu"
                         >
                             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
