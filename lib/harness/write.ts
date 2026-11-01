@@ -33,15 +33,10 @@ export type ModelCall = (params: Parameters<typeof generateStructured>[0]) => Pr
 const EMAIL_SCHEMA = {
     type: 'object',
     additionalProperties: false,
-    required: ['subject', 'body', 'skills_referenced'],
+    required: ['subject', 'body'],
     properties: {
         subject: { type: 'string' },
         body: { type: 'string', description: 'Email body without greeting-line signature or links' },
-        skills_referenced: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Every candidate skill named in the body, exactly as written in the profile',
-        },
     },
 } as const;
 
@@ -89,11 +84,9 @@ export async function writeApplicationEmail(input: WriteApplicationInput): Promi
         ROLE: input.analysis.title,
         COMPANY: input.analysis.company,
         SUMMARY: input.analysis.summary,
-        REQUESTED_SKILLS: input.plan.requested_skills,
-        matched_skills: input.plan.matched_skills,
         GAP_SKILLS: input.plan.gap_skills,
         CANDIDATE_NAME: input.profile.details.full_name,
-        EVIDENCE: input.evidence.map((e) => ({ id: e.id, from: e.source_name, text: e.text, skills: e.skills })),
+        EVIDENCE: input.evidence.map((e) => ({ id: e.id, from: e.source_name, text: e.text })),
         WORD_LIMIT: MAX_APPLICATION_WORDS,
         USER_NOTE: input.userNote ?? null,
     };
@@ -105,7 +98,6 @@ export async function writeApplicationEmail(input: WriteApplicationInput): Promi
         instructions: APPLICATION_INSTRUCTIONS,
         basePrompt: JSON.stringify(payload, null, 2),
         validate: (email) => validateGeneratedEmail(email, {
-            kind: 'application',
             plan: input.plan,
             evidence: input.evidence,
             profile: input.profile,
@@ -142,7 +134,6 @@ export async function writeFollowUpEmail(input: WriteFollowUpInput): Promise<Wri
         instructions: FOLLOW_UP_INSTRUCTIONS,
         basePrompt: JSON.stringify(payload, null, 2),
         validate: (email) => validateGeneratedEmail(email, {
-            kind: 'follow_up',
             plan: null,
             evidence: [],
             profile: input.profile,

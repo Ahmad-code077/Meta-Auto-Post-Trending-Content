@@ -113,22 +113,23 @@ A draft is produced by a fixed sequence. Only two steps call the model.
 
 ```
 job posting
-  -> 1. analyze        (model, structured)   requirements tagged required / preferred / responsibility
-  -> 2. match          (deterministic)       skill aliases, weighted skill hits, bullet overlap, recency
-  -> 3. evidence       (deterministic)       best experience bullets and project descriptions, given stable ids E1..En
-  -> 4. plan           (deterministic)       requested skills, matched skills, GAP skills, links allowed
-  -> 5. write          (model, structured)   sees only the plan and the evidence pack
-  -> 6. validate       (deterministic)       skills exist in profile; gaps not mentioned; no links;
-                                             numbers come from the source; email names the job
+  -> 1. analyze        (model, structured)   title/company/recruiter/location/etc., plain requirement
+                                             sentences, and a flat list of named skills the posting mentions
+  -> 2. gap skills      (deterministic)       named skills the job asks for that the profile does not show,
+                                             via alias-aware lookup (lib/harness/match.ts, gapSkillsFrom)
+  -> 3. evidence        (deterministic)       every experience and project bullet, unranked -- not scored
+                                             or filtered by job relevance -- given stable ids E1..En
+  -> 4. plan            (deterministic)       role, company, gap skills, links allowed
+  -> 5. write           (model, structured)   sees the plan, the full evidence pack, and the gap list
+  -> 6. validate        (deterministic)       gaps not mentioned; no links; numbers come from the
+                                             source or a real profile skill name; email names the job
                                              one retry with the failures listed, then the run stops
-  -> 7. draft          persisted to application_emails with the full generation record
+  -> 7. draft           persisted to application_emails with the full generation record
 ```
 
-The model never receives the whole profile. It only sees the plan and the evidence pack, so it cannot draw on skills that were not selected. Validation runs on the output regardless, so a wrong draft is rejected even if the model ignores its instructions.
+The model never receives the whole profile row-for-row (no headline, summary, contact details) -- only the evidence bullets, the gap list, and the job facts. It is not told which skills matched or how they scored; nothing here ranks evidence by relevance, so the model chooses freely from the full set. Validation runs on the output regardless, so an invented skill-gap claim or a fabricated number is rejected even if the model ignores its instructions. There is deliberately no check that the model's wording of a skill matches the profile's exact spelling -- a candidate can genuinely have React, Express, Node and MongoDB and still write "the MERN stack," and policing that vocabulary caught nothing but false positives (confirmed live: "MERN stack" repeatedly rejected a true, grounded claim) while nothing downstream ever read the self-reported skill list anyway.
 
-**Persisted:** profile, skills, experiences, projects, resume versions, job analysis (cached on `jobs.analysis` by a hash of the posting), drafts, and their generation record (plan, evidence, model, prompt version, attempts).
-
-**Recomputed:** match scores and the evidence ranking. They are cheap and always derive from the current profile. The ranking used for a sent email is kept in its generation record.
+**Persisted:** profile, skills, experiences, projects, resume versions, job analysis (cached on `jobs.analysis` by a hash of the posting and `ANALYSIS_VERSION`), drafts, and their generation record (plan, evidence, model, prompt version, attempts).
 
 Follow-ups use a separate pipeline. They receive the job, the previous email, and the number of days since it was sent. They receive no profile, no links and no skills. Validation rejects any new claim, link, or number not found in the earlier email.
 

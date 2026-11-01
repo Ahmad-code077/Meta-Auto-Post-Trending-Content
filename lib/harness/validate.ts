@@ -3,11 +3,9 @@
 
 import type { EvidenceItem, GeneratedEmail, WritingPlan } from '@/lib/types/applications';
 import type { ProfileSnapshot } from '@/lib/types/profile';
-import { findProfileSkill, mentionsSkill } from './match';
 import { containsPhrase, normalizeText } from './text';
 
 export interface ValidationContext {
-    kind: 'application' | 'follow_up';
     plan: WritingPlan | null;
     evidence: EvidenceItem[];
     profile: ProfileSnapshot;
@@ -31,18 +29,6 @@ export function validateGeneratedEmail(email: GeneratedEmail, ctx: ValidationCon
     if (words < ctx.minWords) errors.push(`Body is too short (${words} words, minimum ${ctx.minWords}).`);
     if (words > ctx.maxWords) errors.push(`Body is too long (${words} words, maximum ${ctx.maxWords}).`);
 
-    // Follow-ups restate the earlier email. They add no profile evidence and name no candidate skills.
-    if (ctx.kind === 'follow_up' && email.skills_referenced.length > 0) {
-        errors.push('Follow-ups must not mention candidate skills.');
-    }
-
-    // Skills named by the writer must exist in the profile.
-    for (const skill of email.skills_referenced) {
-        if (!findProfileSkill(ctx.profile.skills, skill)) {
-            errors.push(`Skill "${skill}" is not in the candidate's profile.`);
-        }
-    }
-
     // Gap skills are what the job asks for and the profile lacks. The writer must not claim them.
     const normalizedBody = normalizeText(`${email.subject} ${body}`);
     for (const gap of ctx.plan?.gap_skills ?? []) {
@@ -57,12 +43,12 @@ export function validateGeneratedEmail(email: GeneratedEmail, ctx: ValidationCon
     }
 
     // Every number must come from the source material, so it cannot be invented. This includes digits
-    // inside a real skill name attached to the evidence (e.g. "S3", "EC2") -- those are not invented
-    // statistics, they are profile-backed skill names that happen to contain a digit.
+    // inside a real profile skill name (e.g. "S3", "EC2") -- those are not invented statistics,
+    // they are real skill names that happen to contain a digit.
     const allowedNumbers = new Set<string>([
         ...(ctx.sourceText.match(/\d+(?:\.\d+)?/g) ?? []),
         ...ctx.evidence.flatMap((e) => e.text.match(/\d+(?:\.\d+)?/g) ?? []),
-        ...ctx.evidence.flatMap((e) => e.skills.flatMap((s) => s.match(/\d+(?:\.\d+)?/g) ?? [])),
+        ...ctx.profile.skills.flatMap((s) => s.name.match(/\d+(?:\.\d+)?/g) ?? []),
     ]);
     for (const number of body.match(/\d+(?:\.\d+)?/g) ?? []) {
         if (!allowedNumbers.has(number)) {
@@ -76,18 +62,6 @@ export function validateGeneratedEmail(email: GeneratedEmail, ctx: ValidationCon
         (ctx.jobTitle && mentionsPhrase(body, ctx.jobTitle));
     if (!mentionsJob) {
         errors.push('Name the role or the company so the email is specific to this job.');
-    }
-
-    // A matched skill mentioned in the body is fine without being tracked in skills_referenced, as long
-    // as it's backed by the evidence the writer was actually given -- that's a bookkeeping slip, not an
-    // invented claim. If it's mentioned but backed by neither, that's still flagged.
-    const evidenceSkillNames = new Set(ctx.evidence.flatMap((e) => e.skills.map((s) => normalizeText(s))));
-    for (const requested of ctx.plan?.matched_skills ?? []) {
-        const trackedOrBacked = email.skills_referenced.some((s) => normalizeText(s) === normalizeText(requested))
-            || evidenceSkillNames.has(normalizeText(requested));
-        if (mentionsSkill(body, requested) && !trackedOrBacked) {
-            errors.push(`Skill "${requested}" appears in the body but not in skills_referenced.`);
-        }
     }
 
     return errors;

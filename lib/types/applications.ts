@@ -35,17 +35,12 @@ export interface EvidenceItem {
     source_id: string;     // experiences.id or projects.id
     source_name: string;   // company + role, or project name
     text: string;          // a single bullet, achievement, or description
-    skills: string[];      // skill names linked to the source
-    score: number;
 }
 
 export interface WritingPlan {
     role: string;
     company: string | null;
-    requested_skills: { name: string; priority: 'required' | 'preferred' }[];
-    matched_skills: string[];
     gap_skills: string[];        // requested by the job, absent from profile. Must not be claimed.
-    evidence_ids: string[];
     include_links: { label: string; url: string }[];
     max_words: number;
 }
@@ -66,5 +61,4 @@ export interface GenerationRecord {
 export interface GeneratedEmail {
     subject: string;
     body: string;
-    skills_referenced: string[];
 }

@@ -1,13 +1,5 @@
 export type JobStatus = 'new' | 'draft_created' | 'sent' | 'follow_up_1' | 'follow_up_2' | 'replied' | 'closed_no_response';
 
-export type RequirementPriority = 'required' | 'preferred' | 'responsibility';
-
-export interface JobRequirement {
-    text: string;
-    priority: RequirementPriority;
-    skill: string | null;
-}
-
 // Output of the job analysis step. Cached in jobs.analysis.
 export interface JobAnalysis {
     title: string | null;
@@ -19,7 +11,8 @@ export interface JobAnalysis {
     experience: string | null;
     timings: string | null;
     summary: string;
-    requirements: JobRequirement[];
+    requirements: string[];    // requirement/responsibility sentences, for the writer's context
+    skills: string[];          // named technologies the posting mentions, for the gap-skill check
 }
 
 export interface Job {

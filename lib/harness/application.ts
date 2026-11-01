@@ -12,7 +12,7 @@ import type { ApplicationEmail, GenerationRecord } from '@/lib/types/application
 import type { Job, JobAnalysis } from '@/lib/types/jobs';
 import type { ProfileSnapshot } from '@/lib/types/profile';
 import { ANALYSIS_VERSION, analyzeJobDescription, hashJobDescription } from './analyze-job';
-import { matchProfile } from './match';
+import { collectEvidence, gapSkillsFrom } from './match';
 import { buildWritingPlan } from './plan';
 import { FOLLOW_UP_PROMPT_VERSION, PROMPT_VERSION, writeApplicationEmail, writeFollowUpEmail } from './write';
 import { OPENAI_MODEL } from './openai';
@@ -63,7 +63,7 @@ export async function ensureJobAnalysis(supabase: SupabaseClient, job: Job): Pro
             work_type: job.work_type ?? analysis.work_type,
             experience: job.experience ?? analysis.experience,
             timings: job.timings ?? analysis.timings,
-            skills: job.skills ?? analysis.requirements.filter((r) => r.skill).map((r) => r.skill!),
+            skills: job.skills ?? analysis.skills,
         })
         .eq('id', job.id)
         .eq('user_id', job.user_id);
@@ -95,12 +95,8 @@ export async function createApplicationDraft(
 
     const analysis = await ensureJobAnalysis(supabase, job);
 
-    if (!analysis.requirements.length) {
-        throw new HarnessError('No requirements could be read from this job description');
-    }
-
-    const match = matchProfile(analysis, profile);
-    if (match.evidence.length === 0) {
+    const evidence = collectEvidence(profile);
+    if (evidence.length === 0) {
         throw new HarnessError('No experience or project in your profile matches this job. Add evidence for the skills it asks for.');
     }
 
@@ -109,13 +105,14 @@ export async function createApplicationDraft(
         throw new HarnessError('This posting has no recruiter email. Add one to the job before creating a draft.');
     }
 
-    const plan = buildWritingPlan({ analysis, profile, match, includeLinks: true });
+    const gapSkills = gapSkillsFrom(analysis, profile.skills);
+    const plan = buildWritingPlan({ analysis, profile, gapSkills, includeLinks: true });
 
     const { email, attempts } = await writeApplicationEmail({
         jobId: job.id,
         analysis,
         plan,
-        evidence: match.evidence,
+        evidence,
         profile,
         sourceText: `${job.raw_post}\n${yearsIn(profile).join(' ')}`,
         userNote: options.note ?? null,
@@ -129,7 +126,7 @@ export async function createApplicationDraft(
         attempts,
         generated_at: new Date().toISOString(),
         plan,
-        evidence: match.evidence,
+        evidence,
         previous_email_id: null,
         user_note: options.note ?? null,
     };

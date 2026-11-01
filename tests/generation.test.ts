@@ -22,19 +22,18 @@ const GOOD: GeneratedEmail = {
     subject: 'Backend Engineer application',
     body: 'I am applying for the Backend Engineer role at Globex. At Acme I built data pipelines in Python, and I would welcome a short call to discuss how that work applies to your team. '
         + 'I have worked on services that process large volumes of records, and I am comfortable owning a service from design through production.',
-    skills_referenced: [],
 }
-const BAD: GeneratedEmail = { subject: 'bad', body: 'too short', skills_referenced: [] }
+const BAD: GeneratedEmail = { subject: 'bad', body: 'too short' }
 
 const analysis: JobAnalysis = {
     title: 'Backend Engineer', company: 'Globex', recruiter_name: null, recruiter_email: null,
-    location: null, work_type: null, experience: null, timings: null, summary: 'Backend role.', requirements: [],
+    location: null, work_type: null, experience: null, timings: null, summary: 'Backend role.',
+    requirements: [], skills: [],
 }
 const plan: WritingPlan = {
-    role: 'Backend Engineer', company: 'Globex', requested_skills: [], matched_skills: [], gap_skills: [],
-    evidence_ids: ['E1'], include_links: [], max_words: 180,
+    role: 'Backend Engineer', company: 'Globex', gap_skills: [], include_links: [], max_words: 180,
 }
-const evidence: EvidenceItem[] = [{ id: 'E1', source: 'experience', source_id: 'exp-1', source_name: 'Engineer at Acme', text: 'Built data pipelines in Python', skills: ['Python'], score: 1 }]
+const evidence: EvidenceItem[] = [{ id: 'E1', source: 'experience', source_id: 'exp-1', source_name: 'Engineer at Acme', text: 'Built data pipelines in Python' }]
 const profile = {
     details: { full_name: 'Sam Rivera', headline: null, location: null, phone: null, contact_email: null, summary: null, linkedin_url: null, github_url: null, portfolio_url: null },
     skills: [], experiences: [], projects: [], resume: null,
