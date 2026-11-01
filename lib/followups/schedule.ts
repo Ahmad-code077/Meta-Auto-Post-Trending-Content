@@ -86,6 +86,23 @@ export function nextSendSlot(base: Date, zone: string): Date {
     throw new Error('No send window within two weeks');
 }
 
+// Walks forward one calendar day at a time in `zone`, counting only Mon-Fri, until `days` business
+// days have passed. Sat/Sun are skipped entirely -- they never count and are never landed on. The
+// clock time from `start` is preserved on the resulting date.
+export function addBusinessDays(start: Date, days: number, zone: string): Date {
+    let { year, month, day } = zonedParts(start, zone);
+    let remaining = days;
+    while (remaining > 0) {
+        const next = new Date(Date.UTC(year, month - 1, day + 1));
+        year = next.getUTCFullYear();
+        month = next.getUTCMonth() + 1;
+        day = next.getUTCDate();
+        if (next.getUTCDay() !== 0 && next.getUTCDay() !== 6) remaining--;
+    }
+    const { hour, minute } = zonedParts(start, zone);
+    return zonedTimeToUtc(year, month, day, hour, minute, zone);
+}
+
 export function sendWindowLabel(zone: string): string {
     return `Tuesday to Thursday, ${SEND_HOUR_START}:00 to ${SEND_HOUR_END}:00 AM (${zone})`;
 }

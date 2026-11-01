@@ -5,7 +5,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { runFollowUpScheduler, type FollowUpRow, type FollowUpStore, type GeneratedFollowUp, type SchedulerDeps } from '../lib/followups/scheduler'
-import { classifyFailure, isDue, isStaleClaim, nextAttemptAt, PermanentFollowUpError, awaitingReply, MAX_ATTEMPTS, followUpDueAt, type FailureDecision } from '../lib/followups/policy'
+import { classifyFailure, isDue, isStaleClaim, nextAttemptAt, PermanentFollowUpError, awaitingReply, MAX_ATTEMPTS, followUpDueAt, FOLLOW_UP_1_BUSINESS_DAYS, type FailureDecision } from '../lib/followups/policy'
+import { addBusinessDays, followUpTimeZone } from '../lib/followups/schedule'
 import { setLogSink, type LogLevel } from '../lib/log/logger'
 import type { Job } from '../lib/types/jobs'
 
@@ -238,8 +239,9 @@ test('policy: follow-up 1 waits for "sent", follow-up 2 waits for "follow_up_1"'
     assert.equal(awaitingReply('replied', 1), false)
     assert.equal(awaitingReply('follow_up_1', 2), true)
     assert.equal(awaitingReply('sent', 2), false)
-    // The gap is 7 days, then moved into the Tuesday-to-Thursday window. Covered in tests/schedule.test.ts.
-    assert.ok(followUpDueAt(T0).getTime() >= T0.getTime() + 7 * 86_400_000)
+    // The gap is business days (3 for follow-up 1), then moved into the Tuesday-to-Thursday window. Covered in tests/schedule.test.ts.
+    const zone = followUpTimeZone()
+    assert.ok(followUpDueAt(T0, FOLLOW_UP_1_BUSINESS_DAYS).getTime() >= addBusinessDays(T0, FOLLOW_UP_1_BUSINESS_DAYS, zone).getTime())
 })
 
 // ---------------------------------------------------------------------------

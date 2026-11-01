@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { HarnessError, getOwnedJob } from '@/lib/harness/application';
 import { logger, errorFields } from '@/lib/log/logger';
-import { followUpDueAt } from '@/lib/followups/policy';
+import { FOLLOW_UP_1_BUSINESS_DAYS, FOLLOW_UP_2_BUSINESS_DAYS, followUpDueAt } from '@/lib/followups/policy';
 import type { ApplicationEmail } from '@/lib/types/applications';
 import type { Job } from '@/lib/types/jobs';
 import { readSmtpSettings, resolveSender, sendSmtpMessage } from './smtp';
@@ -118,7 +118,8 @@ export async function transmitEmail(
 }
 
 // Moves the job forward after a successful send, and keeps follow-ups consistent with it.
-//  - An application schedules follow-up 1 for FOLLOW_UP_DELAY_DAYS later.
+//  - An application schedules follow-up 1 for FOLLOW_UP_1_BUSINESS_DAYS later.
+//  - A sent follow-up 1 schedules follow-up 2 for FOLLOW_UP_2_BUSINESS_DAYS after it.
 //  - A sent follow-up cancels any other scheduled follow-up with the same number, so it cannot send twice.
 // Failures here are logged, not thrown. The email has already been sent, so the send itself stands.
 export async function advanceJobAfterSend(
@@ -130,7 +131,8 @@ export async function advanceJobAfterSend(
     messageId: string
 ): Promise<void> {
     const sentAtIso = sentAt.toISOString();
-    const dueAt = followUpDueAt(sentAt).toISOString();
+    const businessDays = email.kind === 'application' ? FOLLOW_UP_1_BUSINESS_DAYS : FOLLOW_UP_2_BUSINESS_DAYS;
+    const dueAt = followUpDueAt(sentAt, businessDays).toISOString();
 
     const patch = email.kind === 'application'
         ? { status: 'sent', sent_at: sentAtIso, follow_up_date: dueAt, follow_up_count: 0 }

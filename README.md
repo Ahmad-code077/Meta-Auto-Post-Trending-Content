@@ -15,7 +15,7 @@ Both products share authentication, the Supabase client, the UI primitives and t
 | Job applications: list, filter, details | Built |
 | Job intake: paste posting, analyze, create draft | Built |
 | Draft review, editing and SMTP send with the current resume attached | Built |
-| Follow-ups: scheduled automatically 7 days after an application, sent by the cron scheduler, with retries | Built |
+| Follow-ups: scheduled automatically in business days after an application (3 then 4), sent by the cron scheduler, with retries | Built |
 | Recruiter replies: detected over IMAP, cancels pending follow-ups | Built |
 | Command center (`/dashboard/applications`): what needs attention right now | Built |
 | Applications list: search, filter, sort and page, all in the URL | Built |
@@ -153,7 +153,7 @@ Regenerating a draft accepts an optional note (`USER_NOTE`), such as "make it sh
 1. The draft is claimed atomically (`draft` or `failed` to `sending`). Two requests cannot both send.
 2. The resume is attached to the first application only. It is downloaded from the private `resumes` bucket.
 3. SMTP accepts the message. Only then is the row set to `sent`, with the SMTP Message-ID.
-4. The job advances: `sent` with a 7-day follow-up date, or `follow_up_1` / `follow_up_2`.
+4. The job advances: `sent` with a follow-up date 3 business days out, or `follow_up_1` / `follow_up_2`.
 
 The message is plain text only: one `text` part, no HTML. The From address is the authenticated SMTP account (`SMTP_USER`), with the display name from `SMTP_FROM`. The Message-ID uses the same domain. See [Sending domain](#sending-domain-spf-dkim-dmarc).
 
@@ -180,7 +180,7 @@ The repo does not change DNS. These are the records the sending domain needs, se
 
 ## Follow-up scheduler
 
-An application that is sent gets a follow-up scheduled 7 days later. The follow-up is an `application_emails` row with `kind = 'follow_up'`, `follow_up_number = 1`, and `status = 'scheduled'`. Its text is written when it is processed, not when it is scheduled, so the content reflects the job and the earlier email as they are then.
+An application that is sent gets follow-up 1 scheduled 3 business days later; follow-up 1, once sent, schedules follow-up 2 for 4 business days after that (`FOLLOW_UP_1_BUSINESS_DAYS`/`FOLLOW_UP_2_BUSINESS_DAYS` in `lib/followups/policy.ts`). A business day skips Saturday and Sunday in the count itself, before the send window below is applied. The follow-up is an `application_emails` row with `kind = 'follow_up'`, `follow_up_number = 1`, and `status = 'scheduled'`. Its text is written when it is processed, not when it is scheduled, so the content reflects the job and the earlier email as they are then.
 
 ### Managing follow-ups
 
@@ -188,7 +188,7 @@ The application review page (`/dashboard/job-posts/<id>`) shows each follow-up w
 
 ### When follow-ups are sent
 
-Follow-ups go out on Tuesday, Wednesday or Thursday, between 9:00 and 11:00 AM in `FOLLOW_UP_TIMEZONE` (default `Asia/Karachi`). Mondays, Fridays and weekends are skipped, because inboxes are busiest on Monday and quiet on Friday. An automatic follow-up is due 7 days after the application is sent. Its due time is then placed at a random point inside the window: between 9:00 and 10:59 AM on the first Tuesday-to-Thursday day that falls on or after that date (`jitteredSendSlot` in `lib/followups/schedule.ts`). The random point is picked once, when the follow-up is scheduled, so two follow-ups do not share a due time. Manual reschedules outside the window are refused with the rule in the message.
+Follow-ups go out on Tuesday, Wednesday or Thursday, between 9:00 and 11:00 AM in `FOLLOW_UP_TIMEZONE` (default `Asia/Karachi`). Mondays, Fridays and weekends are skipped, because inboxes are busiest on Monday and quiet on Friday. An automatic follow-up is due a set number of business days after the triggering email was sent (`addBusinessDays` in `lib/followups/schedule.ts` walks forward counting only Mon-Fri, so Sat/Sun are skipped in the delay itself, not just in the send window). That raw target is then placed at a random point inside the window: between 9:00 and 10:59 AM on the first Tuesday-to-Thursday day that falls on or after it (`jitteredSendSlot`). The random point is picked once, when the follow-up is scheduled, so two follow-ups do not share a due time. Manual reschedules outside the window are refused with the rule in the message.
 
 Jitter is applied by the scheduler at run time too:
 

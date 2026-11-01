@@ -3,8 +3,8 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { followUpTimeZone, isSendWindow, jitteredSendSlot, MAX_SENDS_PER_RUN, nextSendSlot, pacingMs, PACE_MAX_MS, PACE_MIN_MS, zonedParts, zonedTimeToUtc, DEFAULT_FOLLOW_UP_TIMEZONE } from '../lib/followups/schedule'
-import { followUpDueAt } from '../lib/followups/policy'
+import { addBusinessDays, followUpTimeZone, isSendWindow, jitteredSendSlot, MAX_SENDS_PER_RUN, nextSendSlot, pacingMs, PACE_MAX_MS, PACE_MIN_MS, zonedParts, zonedTimeToUtc, DEFAULT_FOLLOW_UP_TIMEZONE } from '../lib/followups/schedule'
+import { followUpDueAt, FOLLOW_UP_1_BUSINESS_DAYS, FOLLOW_UP_2_BUSINESS_DAYS } from '../lib/followups/policy'
 import { parseDueAt } from '../lib/followups/manage'
 
 const KARACHI = 'Asia/Karachi' // UTC+5, no daylight saving
@@ -71,26 +71,57 @@ test('a moment before 9:00 on a valid day moves to 9:00 that same morning', () =
     assert.equal(show(next), '2026-10-13 09:00 weekday=2')
 })
 
-test('automatic follow-ups are placed 7 days out, then moved to the window', () => {
-    // Sent Tuesday 2026-10-06 at 10:00 Karachi. Plus 7 days is Tuesday 2026-10-13 at 10:00, already inside the window.
+test('automatic follow-up 1 is placed 3 business days out, then moved to the window', () => {
+    // Sent Tuesday 2026-10-06 at 10:00 Karachi. 3 business days out is Friday 2026-10-09 at 10:00 --
+    // not inside the window (Friday), so it moves to Tuesday 2026-10-13 at 9:00.
     const sentAt = local('2026-10-06T10:00')
-    const due = followUpDueAt(sentAt, KARACHI, () => 0)
-    assert.equal(show(due), '2026-10-13 10:00 weekday=2')
+    const due = followUpDueAt(sentAt, FOLLOW_UP_1_BUSINESS_DAYS, KARACHI, () => 0)
+    assert.equal(show(due), '2026-10-13 09:00 weekday=2')
     assert.equal(isSendWindow(due, KARACHI), true)
 })
 
-test('automatic follow-ups sent on a Thursday land on a valid day, never on a Friday', () => {
-    // Sent Thursday 2026-10-08 at 17:00. Plus 7 days is Thursday 2026-10-15 at 17:00: after the window, so Tuesday 9:00.
-    const due = followUpDueAt(local('2026-10-08T17:00'), KARACHI, () => 0)
-    assert.equal(show(due), '2026-10-20 09:00 weekday=2')
+test('automatic follow-up 1 sent late on a Thursday lands on the next valid window day', () => {
+    // Sent Thursday 2026-10-08 at 17:00. 3 business days out is Tuesday 2026-10-13 at 17:00 -- after
+    // that day's window, so it moves to Wednesday 2026-10-14 at 9:00.
+    const due = followUpDueAt(local('2026-10-08T17:00'), FOLLOW_UP_1_BUSINESS_DAYS, KARACHI, () => 0)
+    assert.equal(show(due), '2026-10-14 09:00 weekday=3')
 })
 
-test('every automatic follow-up is inside the window, whatever day it was sent', () => {
+test('every automatic follow-up 1 is inside the window, whatever day it was sent', () => {
     for (let day = 0; day < 14; day++) {
         const sent = new Date(local('2026-10-01T10:00').getTime() + day * 86_400_000 + 3 * 3_600_000)
-        const due = followUpDueAt(sent, KARACHI, () => 0.5)
+        const due = followUpDueAt(sent, FOLLOW_UP_1_BUSINESS_DAYS, KARACHI, () => 0.5)
         assert.equal(isSendWindow(due, KARACHI), true, `sent ${show(sent)} -> ${show(due)}`)
-        assert.ok(due.getTime() >= sent.getTime() + 7 * 86_400_000, 'never earlier than 7 days out')
+        assert.ok(
+            due.getTime() >= addBusinessDays(sent, FOLLOW_UP_1_BUSINESS_DAYS, KARACHI).getTime(),
+            'never earlier than the raw business-day target'
+        )
+    }
+})
+
+test('addBusinessDays never lands on a weekend, whatever the start day or day count', () => {
+    for (let day = 0; day < 14; day++) {
+        const start = new Date(local('2026-10-01T10:00').getTime() + day * 86_400_000)
+        for (const n of [1, 2, 3, 4, 5]) {
+            const result = addBusinessDays(start, n, KARACHI)
+            const weekday = zonedParts(result, KARACHI).weekday
+            assert.ok(weekday !== 0 && weekday !== 6, `n=${n} start=${show(start)} -> ${show(result)}`)
+        }
+    }
+})
+
+test('business-day schedule: follow-up 1 (3 business days), then follow-up 2 (4 business days after it), both through the window', () => {
+    const cases = [
+        { label: 'Monday', sent: '2026-10-12T15:00', fu1: '2026-10-20 09:00 weekday=2', fu2: '2026-10-27 09:00 weekday=2' },
+        { label: 'Wednesday', sent: '2026-10-14T15:00', fu1: '2026-10-20 09:00 weekday=2', fu2: '2026-10-27 09:00 weekday=2' },
+        { label: 'Friday', sent: '2026-10-16T15:00', fu1: '2026-10-22 09:00 weekday=4', fu2: '2026-10-28 09:00 weekday=3' },
+    ]
+    for (const c of cases) {
+        const sentAt = local(c.sent)
+        const fu1Due = followUpDueAt(sentAt, FOLLOW_UP_1_BUSINESS_DAYS, KARACHI, () => 0)
+        assert.equal(show(fu1Due), c.fu1, `follow-up 1 for sent ${c.label}`)
+        const fu2Due = followUpDueAt(fu1Due, FOLLOW_UP_2_BUSINESS_DAYS, KARACHI, () => 0)
+        assert.equal(show(fu2Due), c.fu2, `follow-up 2 for sent ${c.label}`)
     }
 })
 
@@ -170,7 +201,7 @@ test('jitter: follow-up due times differ across many sent emails and stay in the
     const sentTimes = new Set<number>()
     for (let i = 0; i < 40; i++) {
         const sent = local('2026-10-01T10:00')
-        sentTimes.add(followUpDueAt(sent, KARACHI, random).getTime())
+        sentTimes.add(followUpDueAt(sent, FOLLOW_UP_1_BUSINESS_DAYS, KARACHI, random).getTime())
     }
     assert.ok(sentTimes.size > 20, 'due times should be spread, not all identical')
     for (const t of sentTimes) assert.equal(isSendWindow(new Date(t), KARACHI), true)

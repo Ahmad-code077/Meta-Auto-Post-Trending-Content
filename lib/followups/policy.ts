@@ -1,9 +1,10 @@
 // Pure rules for scheduled follow-ups. No I/O, so every decision is deterministic and testable.
 
 import { scrub } from '@/lib/log/logger';
-import { followUpTimeZone, jitteredSendSlot } from './schedule';
+import { addBusinessDays, followUpTimeZone, jitteredSendSlot } from './schedule';
 
-export const FOLLOW_UP_DELAY_DAYS = 7;
+export const FOLLOW_UP_1_BUSINESS_DAYS = 3;
+export const FOLLOW_UP_2_BUSINESS_DAYS = 4;
 export const MAX_ATTEMPTS = 3;
 // Delay before the next attempt, indexed by the attempt that just failed (1 -> 15 min, 2 -> 60 min).
 // There is no delay after the last attempt: the follow-up is marked failed instead.
@@ -62,9 +63,15 @@ export function nextAttemptAt(attemptsSoFar: number, now: Date): Date | null {
     return new Date(now.getTime() + minutes * 60_000);
 }
 
-// The 7-day gap, moved into the Tuesday-to-Thursday morning window with a random offset. See lib/followups/schedule.ts.
-export function followUpDueAt(sentAt: Date, zone: string = followUpTimeZone(), random: () => number = Math.random): Date {
-    return jitteredSendSlot(new Date(sentAt.getTime() + FOLLOW_UP_DELAY_DAYS * 86_400_000), zone, random);
+// The business-day gap (3 for follow-up 1, 4 for follow-up 2), moved into the Tuesday-to-Thursday
+// morning window with a random offset. See lib/followups/schedule.ts.
+export function followUpDueAt(
+    sentAt: Date,
+    businessDays: number,
+    zone: string = followUpTimeZone(),
+    random: () => number = Math.random
+): Date {
+    return jitteredSendSlot(addBusinessDays(sentAt, businessDays, zone), zone, random);
 }
 
 export function isDue(due: { status: string; due_at: string | null }, now: Date): boolean {

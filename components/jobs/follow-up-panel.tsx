@@ -48,7 +48,7 @@ export function FollowUpPanel({ jobId, jobStatus, followUps }: FollowUpPanelProp
                 {followUps.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                         {jobStatus === 'sent'
-                            ? 'Follow-up 1 is scheduled automatically 7 days after the application is sent.'
+                            ? 'Follow-up 1 is scheduled automatically 3 business days after the application is sent.'
                             : 'Follow-ups appear here after the application is sent.'}
                     </p>
                 ) : (
