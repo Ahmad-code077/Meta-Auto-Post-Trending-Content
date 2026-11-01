@@ -118,7 +118,7 @@ export async function createApplicationDraft(
         userNote: options.note ?? null,
     });
 
-    const body = `${email.body.trim()}\n\n${signature(profile, plan.include_links.length > 0)}`;
+    const body = `${greeting(job.recruiter_name ?? analysis.recruiter_name)}\n\n${email.body.trim()}\n\n${signature(profile, plan.include_links.length > 0)}`;
 
     const generation: GenerationRecord = {
         model: OPENAI_MODEL,
@@ -211,7 +211,7 @@ export async function generateFollowUpContent(
 
     return {
         subject: email.subject.trim(),
-        body: `${email.body.trim()}\n\n${signature(profile, false)}`,
+        body: `${greeting(job.recruiter_name)}\n\n${email.body.trim()}\n\n${signature(profile, false)}`,
         generation: {
             model: OPENAI_MODEL,
             prompt_version: FOLLOW_UP_PROMPT_VERSION,
@@ -304,6 +304,10 @@ export async function createFollowUpDraft(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+export function greeting(recruiterName: string | null | undefined): string {
+    return `Hi ${recruiterName ?? 'Hiring Team'},`;
+}
 
 function signature(profile: ProfileSnapshot, includeLinks: boolean): string {
     const lines = [profile.details.full_name ? `Best regards,\n${profile.details.full_name}` : 'Best regards'];

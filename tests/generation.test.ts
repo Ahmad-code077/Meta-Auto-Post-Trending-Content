@@ -6,7 +6,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createGenerationGuard, isSignedIn, parseGenerationInput, sanitizeUserNote, NOTE_MAX_LENGTH } from '../lib/generation/guard'
 import { writeApplicationEmail, MAX_LLM_ATTEMPTS, type ModelCall } from '../lib/harness/write'
-import { createApplicationDraft, HarnessError } from '../lib/harness/application'
+import { createApplicationDraft, greeting, HarnessError } from '../lib/harness/application'
 import type { GeneratedEmail, EvidenceItem, WritingPlan } from '../lib/types/applications'
 import type { JobAnalysis } from '../lib/types/jobs'
 import type { ProfileSnapshot } from '../lib/types/profile'
@@ -217,6 +217,16 @@ test('rate limit is per user, so one user cannot use up another user\'s budget',
     assert.equal(guard.acquire('user-1', 'job-1').ok, true)
     assert.equal(guard.acquire('user-1', 'job-2').ok, false)
     assert.equal(guard.acquire('user-2', 'job-3').ok, true)
+})
+
+// ---------------------------------------------------------------------------
+// Greeting line
+// ---------------------------------------------------------------------------
+
+test('the greeting uses the recruiter name when known, and falls back to a generic one otherwise', () => {
+    assert.equal(greeting('Jordan Lee'), 'Hi Jordan Lee,')
+    assert.equal(greeting(null), 'Hi Hiring Team,')
+    assert.equal(greeting(undefined), 'Hi Hiring Team,')
 })
 
 // ---------------------------------------------------------------------------

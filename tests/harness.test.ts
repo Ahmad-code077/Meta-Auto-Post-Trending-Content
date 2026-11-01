@@ -5,6 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { containsPhrase, normalizeText } from '../lib/harness/text'
 import { collectEvidence, findProfileSkill, gapSkillsFrom } from '../lib/harness/match'
+import { aggregateGapSkills } from '../lib/harness/gap-skills'
 import { buildWritingPlan } from '../lib/harness/plan'
 import { validateGeneratedEmail, type ValidationContext } from '../lib/harness/validate'
 import type { GeneratedEmail } from '../lib/types/applications'
@@ -206,6 +207,30 @@ test('project dates follow the same rule', () => {
 test('skill names are required and capped', () => {
     assert.ok(skillSchema.safeParse({ name: '   ' }).success === false)
     assert.ok(skillSchema.safeParse({ name: 'Go', aliases: ['golang'] }).success)
+})
+
+test('gap skills are aggregated across jobs, sorted by how many jobs ask for each one', () => {
+    const jobs = [
+        { id: 'j1', title: 'Backend Engineer', company: 'Globex', analysis: { ...analysis, skills: ['Kubernetes', 'RabbitMQ'] } },
+        { id: 'j2', title: 'Platform Engineer', company: 'Initech', analysis: { ...analysis, skills: ['Kubernetes'] } },
+        { id: 'j3', title: 'SRE', company: 'Hooli', analysis: { ...analysis, skills: ['Python'] } },
+    ]
+    const summaries = aggregateGapSkills(jobs, profile.skills)
+    assert.deepEqual(summaries.map((s) => s.skill), ['Kubernetes', 'RabbitMQ'])
+    assert.equal(summaries[0].jobCount, 2)
+    assert.deepEqual(summaries[0].jobs.map((j) => j.id), ['j1', 'j2'])
+    assert.equal(summaries[1].jobCount, 1)
+})
+
+test('aggregation groups case/punctuation variants of the same skill and skips unanalyzed jobs', () => {
+    const jobs = [
+        { id: 'j1', title: null, company: null, analysis: { ...analysis, skills: ['Kubernetes'] } },
+        { id: 'j2', title: null, company: null, analysis: { ...analysis, skills: ['KUBERNETES'] } },
+        { id: 'j3', title: null, company: null, analysis: null },
+    ]
+    const summaries = aggregateGapSkills(jobs, profile.skills)
+    assert.equal(summaries.length, 1)
+    assert.equal(summaries[0].jobCount, 2)
 })
 
 test('profile links must be https URLs', () => {
