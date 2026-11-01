@@ -31,6 +31,7 @@ function job(overrides: Partial<DashboardJob> = {}): DashboardJob {
         sent_at: '2026-09-21T10:00:00.000Z',
         replied_at: null,
         dismissed_at: null,
+        deleted_at: null,
         ...overrides,
     }
 }
@@ -285,6 +286,38 @@ test('a dismissed job is excluded from every section, and counted in dismissedCo
 test('dismissedCount is zero when nothing is dismissed', () => {
     const data = build([job({ status: 'new' }), job({ status: 'sent' })])
     assert.equal(data.dismissedCount, 0)
+})
+
+// ---------------------------------------------------------------------------
+// Deleting jobs: hidden from every section, counted in deletedCount, takes priority over dismissed
+// ---------------------------------------------------------------------------
+
+test('a deleted job is excluded from every section, and counted in deletedCount, not total', () => {
+    const deletedNew = job({ status: 'new', deleted_at: '2026-10-02T00:00:00.000Z' })
+    const deletedWithFollowUp = job({ status: 'sent', deleted_at: '2026-10-02T00:00:00.000Z' })
+    const kept = job({ status: 'new' })
+
+    const data = build(
+        [deletedNew, deletedWithFollowUp, kept],
+        [followUp({ job_id: deletedWithFollowUp.id, follow_up_number: 1, status: 'scheduled', due_at: '2026-10-09T09:00:00.000Z' })]
+    )
+
+    assert.equal(data.total, 1, 'deleted jobs do not count toward total')
+    assert.equal(data.deletedCount, 2)
+    assert.deepEqual(data.needsAttention.map((c) => c.jobId), [kept.id])
+    assert.equal(data.upcomingFollowUps.some((u) => u.jobId === deletedWithFollowUp.id), false)
+})
+
+test('a job that is both dismissed and deleted counts only toward deletedCount', () => {
+    const both = job({ status: 'new', dismissed_at: '2026-10-01T00:00:00.000Z', deleted_at: '2026-10-02T00:00:00.000Z' })
+    const data = build([both, job({ status: 'new' })])
+    assert.equal(data.deletedCount, 1)
+    assert.equal(data.dismissedCount, 0)
+})
+
+test('deletedCount is zero when nothing is deleted', () => {
+    const data = build([job({ status: 'new' }), job({ status: 'sent' })])
+    assert.equal(data.deletedCount, 0)
 })
 
 // ---------------------------------------------------------------------------

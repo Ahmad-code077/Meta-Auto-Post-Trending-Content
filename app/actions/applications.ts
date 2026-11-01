@@ -250,6 +250,74 @@ export async function restoreJob(jobId: string): Promise<ActionResult<null>> {
     }
 }
 
+// Soft-deletes a job: hidden from the Command Center and the applications list (lib/data/applications.ts
+// filters deleted_at there), kept for the Deleted list, which can restore it. Cancels any pending
+// follow-up, same conditional pattern as every other cancel site -- scheduled only, never a sent one.
+export async function deleteJob(jobId: string): Promise<ActionResult<null>> {
+    try {
+        const { supabase, user } = await requireUser();
+
+        const { data, error } = await supabase
+            .from('jobs')
+            .update({ deleted_at: new Date().toISOString() })
+            .eq('id', jobId)
+            .eq('user_id', user.id)
+            .is('deleted_at', null)
+            .select('id')
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!data) return { success: false, message: 'This application was already deleted.' };
+
+        const { error: cancelError } = await supabase
+            .from('application_emails')
+            .update({
+                status: 'cancelled',
+                due_at: null,
+                claim_token: null,
+                error: 'This application was deleted.',
+                error_code: 'JOB_DELETED',
+                updated_at: new Date().toISOString(),
+            })
+            .eq('user_id', user.id)
+            .eq('job_id', jobId)
+            .eq('kind', 'follow_up')
+            .eq('status', 'scheduled');
+
+        if (cancelError) throw cancelError;
+
+        revalidateApplicationPaths(jobId);
+        return { success: true, data: null };
+    } catch (error) {
+        return failure(error, 'The application could not be deleted');
+    }
+}
+
+// Brings a deleted job back. Idempotent, same as restoreJob. Does not reschedule a follow-up that
+// was cancelled by deleteJob -- that would be a surprising, invisible side effect of a restore.
+export async function restoreDeletedJob(jobId: string): Promise<ActionResult<null>> {
+    try {
+        const { supabase, user } = await requireUser();
+
+        const { data, error } = await supabase
+            .from('jobs')
+            .update({ deleted_at: null })
+            .eq('id', jobId)
+            .eq('user_id', user.id)
+            .not('deleted_at', 'is', null)
+            .select('id')
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!data) return { success: false, message: 'This application is not deleted.' };
+
+        revalidateApplicationPaths(jobId);
+        return { success: true, data: null };
+    } catch (error) {
+        return failure(error, 'The application could not be restored');
+    }
+}
+
 // Confirms an engaged/rejected reply that is awaiting your review: status becomes 'replied', and the
 // pending follow-up (never cancelled while awaiting review) is cancelled now. Conditional on the job
 // still being awaiting_review, so a click that loses a race against the 2-day auto-confirm (see

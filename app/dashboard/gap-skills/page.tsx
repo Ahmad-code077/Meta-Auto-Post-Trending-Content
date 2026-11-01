@@ -19,6 +19,7 @@ export default async function GapSkillsPage() {
             .from('jobs')
             .select('id, title, company, analysis, analysis_version')
             .eq('user_id', user.id)
+            .is('deleted_at', null)
             .not('analysis', 'is', null)
             .order('created_at', { ascending: false })
             .limit(1000),

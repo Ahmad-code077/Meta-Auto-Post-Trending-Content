@@ -93,7 +93,8 @@ function jobsQuery(
     let q = supabase
         .from('jobs')
         .select(columns, withCount ? { count: 'exact' } : undefined)
-        .eq('user_id', userId);
+        .eq('user_id', userId)
+        .is('deleted_at', null);
 
     if (query.q) {
         // Search text is sanitized in lib/applications/list.ts, so it cannot change the filter structure.
@@ -254,6 +255,7 @@ async function loadFilterOptions(supabase: SupabaseClient, userId: string): Prom
         .from('jobs')
         .select('company, location, work_type')
         .eq('user_id', userId)
+        .is('deleted_at', null)
         .limit(OPTION_LIMIT);
     if (error) throw new Error(`Could not load filter options: ${error.message}`);
 

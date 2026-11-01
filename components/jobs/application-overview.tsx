@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import type { JobStatus } from '@/lib/types/jobs'
 import { EditJobDetails } from './edit-job-details'
+import { DeleteJobButton } from './job-delete'
 import { STATUS_BADGE, STATUS_CONFIG } from './job-meta'
 
 export interface ApplicationOverviewProps {
@@ -33,19 +34,22 @@ export function ApplicationOverview(props: ApplicationOverviewProps) {
                     <CardTitle>Overview</CardTitle>
                     <CardDescription>The key facts about this application.</CardDescription>
                 </div>
-                <EditJobDetails
-                    jobId={props.jobId}
-                    status={props.status}
-                    details={{
-                        title: props.title,
-                        company: props.company,
-                        recruiterName: props.recruiterName,
-                        recruiterEmail: props.recruiterEmail,
-                        location: props.location,
-                        workType: props.workType,
-                        timings: props.timings,
-                    }}
-                />
+                <div className="flex items-center gap-2">
+                    <EditJobDetails
+                        jobId={props.jobId}
+                        status={props.status}
+                        details={{
+                            title: props.title,
+                            company: props.company,
+                            recruiterName: props.recruiterName,
+                            recruiterEmail: props.recruiterEmail,
+                            location: props.location,
+                            workType: props.workType,
+                            timings: props.timings,
+                        }}
+                    />
+                    <DeleteJobButton jobId={props.jobId} label={`${props.company || 'this role'} · ${props.title || 'Untitled role'}`} />
+                </div>
             </CardHeader>
             <CardContent>
                 <dl className="grid gap-x-8 gap-y-5 text-sm sm:grid-cols-2 lg:grid-cols-3">

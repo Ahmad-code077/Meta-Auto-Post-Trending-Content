@@ -20,6 +20,7 @@ export interface DashboardJob {
     sent_at: string | null;
     replied_at: string | null;
     dismissed_at: string | null;
+    deleted_at: string | null;
 }
 
 export interface DashboardEmail {
@@ -78,6 +79,7 @@ export interface CommandCenter {
     total: number;
     counts: { needsAttention: number; upcoming: number; waiting: number; replied: number };
     dismissedCount: number;
+    deletedCount: number;
     needsAttention: ApplicationCard[];
     upcomingFollowUps: UpcomingFollowUp[];
     waiting: ApplicationCard[];
@@ -110,10 +112,14 @@ export function buildCommandCenter(input: {
 }): CommandCenter {
     // Defence in depth: rows that are not this user's are dropped, even though the queries already filter them.
     const ownJobs = input.jobs.filter((j) => j.user_id === input.userId);
+    // Deleted takes priority: a deleted job is gone from here and from dismissedCount, same as it is
+    // from the applications list (lib/data/applications.ts filters deleted_at there too).
+    const notDeleted = ownJobs.filter((j) => !j.deleted_at);
+    const deletedCount = ownJobs.length - notDeleted.length;
     // Dismissed jobs are hidden from every section below, but kept (not deleted, not cancelled) and
     // still visible on the applications list page, which reads from a different query entirely.
-    const jobs = ownJobs.filter((j) => !j.dismissed_at);
-    const dismissedCount = ownJobs.length - jobs.length;
+    const jobs = notDeleted.filter((j) => !j.dismissed_at);
+    const dismissedCount = notDeleted.length - jobs.length;
     const emails = input.emails.filter((e) => e.user_id === input.userId);
 
     const emailsByJob = new Map<string, DashboardEmail[]>();
@@ -162,6 +168,7 @@ export function buildCommandCenter(input: {
             replied: replied.length,
         },
         dismissedCount,
+        deletedCount,
         needsAttention,
         upcomingFollowUps,
         waiting,

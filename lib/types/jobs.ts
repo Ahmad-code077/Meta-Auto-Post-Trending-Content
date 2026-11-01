@@ -44,6 +44,8 @@ export interface Job {
     // Dedup cursor for holding/auto_reply replies, which don't change reply_message_id/status.
     last_inbound_message_id: string | null;
     dismissed_at: string | null;
+    // Soft delete. Hidden everywhere except the Deleted list, which can restore it.
+    deleted_at: string | null;
     created_at: string;
     user_id: string;
 }

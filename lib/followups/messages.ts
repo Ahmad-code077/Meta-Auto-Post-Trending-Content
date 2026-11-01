@@ -24,6 +24,7 @@ const CANCEL_TEXT: Record<string, string> = {
     RECIPIENT_REPLIED: 'The recruiter replied, so follow-ups stopped.',
     AUTO_CONFIRMED_REPLY: 'Auto-confirmed 2 days before this follow-up was due.',
     MANUAL_MARKED_REPLIED: 'You marked this application as replied.',
+    JOB_DELETED: 'This application was deleted.',
 };
 
 export function failureReason(errorCode: string | null | undefined): string {
