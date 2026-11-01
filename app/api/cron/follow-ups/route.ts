@@ -8,6 +8,8 @@ import { createFollowUpDeps } from '@/lib/followups/deps';
 import { runFollowUpScheduler } from '@/lib/followups/scheduler';
 import { runGraceWindowCheck } from '@/lib/followups/grace';
 import { createSupabaseGraceStore } from '@/lib/followups/store';
+import { followUpTimeZone } from '@/lib/followups/schedule';
+import { runScheduledApplicationSends, createSupabaseSendSchedulerStore } from '@/lib/mail/send-scheduler';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
@@ -32,8 +34,16 @@ export async function GET(request: Request) {
         // ever sees it -- so a follow-up is never sent over a reply nobody has looked at.
         const grace = await runGraceWindowCheck(createSupabaseGraceStore(supabase), new Date());
 
+        const applicationSends = await runScheduledApplicationSends({
+            store: createSupabaseSendSchedulerStore(supabase),
+            zone: followUpTimeZone(),
+            random: () => Math.random(),
+            pause: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+            now: () => new Date(),
+        });
+
         const summary = await runFollowUpScheduler(createFollowUpDeps(supabase));
-        return Response.json({ ok: true, grace, ...summary });
+        return Response.json({ ok: true, grace, applicationSends, ...summary });
     } catch (error) {
         logger.error('followup.scheduler.crashed', errorFields(error));
         return Response.json({ ok: false, error: 'Scheduler failed' }, { status: 500 });

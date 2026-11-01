@@ -1,11 +1,13 @@
 // Sends reviewed drafts and scheduled follow-ups over SMTP. The only path that marks an email as sent.
 //
 // Guarantees:
-//  - A user-triggered send claims the draft atomically (draft or failed -> sending). A double click cannot send twice.
+//  - A send claims the draft atomically (draft, failed, or scheduled -> sending). A double click cannot send twice.
 //  - status becomes "sent" only after the SMTP server accepts the recipient.
 //  - A failed attempt is recorded as "failed" with the error, so it can be retried by hand.
 //  - Scheduled follow-ups use the same transport (transmitEmail) and the same job update (advanceJobAfterSend).
 //    The scheduler adds its own claim and retry rules on top; see lib/followups/scheduler.ts.
+//  - A window-scheduled application send (status "scheduled") is sent by this same function, called
+//    by lib/mail/send-scheduler.ts once it is due and inside the send window.
 
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -52,7 +54,7 @@ export async function sendApplicationEmail(
         .update({ status: 'sending', error: null, resume_id: resumeId, updated_at: new Date().toISOString() })
         .eq('id', draft.id)
         .eq('user_id', userId)
-        .in('status', ['draft', 'failed'])
+        .in('status', ['draft', 'failed', 'scheduled'])
         .select('*')
         .maybeSingle();
 
