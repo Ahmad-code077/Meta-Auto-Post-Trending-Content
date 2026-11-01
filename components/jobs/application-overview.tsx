@@ -2,14 +2,19 @@ import { format } from 'date-fns'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import type { JobStatus } from '@/lib/types/jobs'
+import { EditJobDetails } from './edit-job-details'
 import { STATUS_BADGE, STATUS_CONFIG } from './job-meta'
 
 export interface ApplicationOverviewProps {
+    jobId: string
     title: string | null
     company: string | null
     status: JobStatus
     recruiterName: string | null
     recruiterEmail: string | null
+    location: string | null
+    workType: string | null
+    timings: string | null
     sentAt: string | null
     nextFollowUp: { number: number; dueAt: string } | null
     latestFollowUp: { number: number; status: string } | null
@@ -23,9 +28,24 @@ export function ApplicationOverview(props: ApplicationOverviewProps) {
 
     return (
         <Card>
-            <CardHeader>
-                <CardTitle>Overview</CardTitle>
-                <CardDescription>The key facts about this application.</CardDescription>
+            <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
+                <div className="space-y-1.5">
+                    <CardTitle>Overview</CardTitle>
+                    <CardDescription>The key facts about this application.</CardDescription>
+                </div>
+                <EditJobDetails
+                    jobId={props.jobId}
+                    status={props.status}
+                    details={{
+                        title: props.title,
+                        company: props.company,
+                        recruiterName: props.recruiterName,
+                        recruiterEmail: props.recruiterEmail,
+                        location: props.location,
+                        workType: props.workType,
+                        timings: props.timings,
+                    }}
+                />
             </CardHeader>
             <CardContent>
                 <dl className="grid gap-x-8 gap-y-5 text-sm sm:grid-cols-2 lg:grid-cols-3">
@@ -44,6 +64,9 @@ export function ApplicationOverview(props: ApplicationOverviewProps) {
                             'Not set'
                         )}
                     </Field>
+                    <Field label="Location">{props.location || 'Not set'}</Field>
+                    <Field label="Work type">{props.workType || 'Not set'}</Field>
+                    <Field label="Timings">{props.timings || 'Not set'}</Field>
                     {props.repliedAt && (
                         <Field label="Replied">{format(new Date(props.repliedAt), 'PPP p')}</Field>
                     )}

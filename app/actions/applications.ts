@@ -6,6 +6,7 @@ import { revalidateApplicationPaths } from '@/lib/applications/revalidate';
 import { draftGuard, parseGenerationInput } from '@/lib/generation/guard';
 import { GenerationError } from '@/lib/harness/write';
 import { createApplicationDraft, createFollowUpDraft, ensureJobAnalysis, getOwnedJob, HarnessError } from '@/lib/harness/application';
+import { applyRecruiterEmailLock } from '@/lib/jobs/editable';
 import { sendApplicationEmail } from '@/lib/mail/send';
 import type { ActionResult } from '@/lib/types/actions';
 import type { ApplicationEmail } from '@/lib/types/applications';
@@ -14,6 +15,23 @@ import type { Job } from '@/lib/types/jobs';
 const JOB_DESCRIPTION_MIN = 50;
 const JOB_DESCRIPTION_MAX = 5000;
 const DRAFT_BODY_MAX = 8000;
+
+// Empty string clears a field to null; anything else is trimmed and length-capped.
+const optionalText = (max: number) =>
+    z.string().trim().max(max).transform((v) => (v === '' ? null : v)).optional();
+
+const jobDetailsSchema = z.object({
+    title: optionalText(200),
+    company: optionalText(200),
+    recruiter_name: optionalText(200),
+    recruiter_email: z.string().trim().max(254)
+        .refine((v) => v === '' || z.string().email().safeParse(v).success, 'Enter a valid email')
+        .transform((v) => (v === '' ? null : v))
+        .optional(),
+    location: optionalText(200),
+    work_type: optionalText(60),
+    timings: optionalText(200),
+});
 
 const draftEditSchema = z.object({
     subject: z
@@ -214,6 +232,45 @@ export async function reanalyzeJob(jobId: string): Promise<ActionResult<Job>> {
         return { success: true, data: await getOwnedJob(supabase, user.id, jobId) };
     } catch (error) {
         return failure(error, 'The job could not be analyzed');
+    }
+}
+
+// Saves manual corrections to the job's own facts -- the backstop for whatever analysis misses or
+// gets wrong. recruiter_email is dropped from the update once the job has been sent: the address
+// used at send time is the historical record (kept on the sent application_emails row, not here),
+// so this field becomes read-only rather than silently diverging from what was actually used.
+export async function updateJobDetails(
+    jobId: string,
+    input: Record<string, unknown>
+): Promise<ActionResult<Job>> {
+    const parsed = jobDetailsSchema.safeParse(input);
+    if (!parsed.success) {
+        return { success: false, message: parsed.error.issues[0]?.message ?? 'Check the details' };
+    }
+
+    try {
+        const { supabase, user } = await requireUser();
+        const job = await getOwnedJob(supabase, user.id, jobId);
+        const patch = applyRecruiterEmailLock(job.status, parsed.data);
+
+        if (Object.keys(patch).length === 0) {
+            return { success: true, data: job };
+        }
+
+        const { data, error } = await supabase
+            .from('jobs')
+            .update(patch)
+            .eq('id', jobId)
+            .eq('user_id', user.id)
+            .select('*')
+            .single();
+
+        if (error || !data) throw new Error(error?.message ?? 'Update failed');
+
+        revalidateApplicationPaths(jobId);
+        return { success: true, data: data as Job };
+    } catch (error) {
+        return failure(error, 'The job details could not be saved');
     }
 }
 

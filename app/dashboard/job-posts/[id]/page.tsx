@@ -16,7 +16,7 @@ export default async function JobReviewPage({ params }: { params: Promise<{ id: 
 
     const { data: job } = await supabase
         .from('jobs')
-        .select('id, user_id, title, company, recruiter_name, recruiter_email, status, raw_post, created_at, analyzed_at, sent_at, replied_at')
+        .select('id, user_id, title, company, recruiter_name, recruiter_email, location, work_type, timings, status, raw_post, created_at, analyzed_at, sent_at, replied_at')
         .eq('id', id)
         .eq('user_id', user.id)
         .maybeSingle()
@@ -111,11 +111,15 @@ export default async function JobReviewPage({ params }: { params: Promise<{ id: 
             </Button>
 
             <ApplicationOverview
+                jobId={job.id}
                 title={job.title}
                 company={job.company}
                 status={job.status}
                 recruiterName={job.recruiter_name}
                 recruiterEmail={job.recruiter_email}
+                location={job.location}
+                workType={job.work_type}
+                timings={job.timings}
                 sentAt={sent?.sent_at ?? job.sent_at ?? null}
                 nextFollowUp={summary.next ? { number: summary.next.number, dueAt: summary.next.dueAt } : null}
                 latestFollowUp={summary.latest}
