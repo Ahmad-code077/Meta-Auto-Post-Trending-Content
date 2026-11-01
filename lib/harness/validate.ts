@@ -28,9 +28,16 @@ export function validateGeneratedEmail(email: GeneratedEmail, ctx: ValidationCon
     if (words > ctx.maxWords) errors.push(`Body is too long (${words} words, maximum ${ctx.maxWords}).`);
 
     // Gap skills are what the job asks for and the profile lacks. The writer must not claim them.
+    // Naming the role or company below is required, and either one may itself contain a gap-skill
+    // word (e.g. a title like "RabbitMQ Developer" where RabbitMQ is a gap). Stripped first, so
+    // that required mention is never indistinguishable from a skill claim -- any other, separate
+    // mention of the same word still gets caught.
     const normalizedBody = normalizeText(`${email.subject} ${body}`);
+    let gapCheckText = normalizedBody;
+    if (ctx.jobTitle) gapCheckText = withoutPhrase(gapCheckText, normalizeText(ctx.jobTitle));
+    if (ctx.jobCompany) gapCheckText = withoutPhrase(gapCheckText, normalizeText(ctx.jobCompany));
     for (const gap of ctx.plan?.gap_skills ?? []) {
-        if (containsPhrase(normalizedBody, normalizeText(gap))) {
+        if (containsPhrase(gapCheckText, normalizeText(gap))) {
             errors.push(`Do not mention "${gap}": the candidate has no evidence for it.`);
         }
     }
@@ -53,4 +60,11 @@ export function validateGeneratedEmail(email: GeneratedEmail, ctx: ValidationCon
 
 function mentionsPhrase(body: string, phrase: string): boolean {
     return containsPhrase(normalizeText(body), normalizeText(phrase));
+}
+
+// Removes every occurrence of `normalizedPhrase` from `normalizedText`. Both must already be
+// normalized (lowercase, space-separated words) -- same boundary convention as containsPhrase.
+function withoutPhrase(normalizedText: string, normalizedPhrase: string): string {
+    if (!normalizedPhrase) return normalizedText;
+    return ` ${normalizedText} `.split(` ${normalizedPhrase} `).join(' ').trim();
 }

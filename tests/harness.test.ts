@@ -155,6 +155,18 @@ test('validation requires the email to name the job', () => {
     assert.ok(validateGeneratedEmail(e, ctx).some((m) => m.includes('specific')))
 })
 
+test('a gap skill inside the job title does not block naming the role, with no company to fall back on', () => {
+    const titleCtx: ValidationContext = { ...ctx, jobCompany: null, jobTitle: 'RabbitMQ Developer', plan: { ...plan, gap_skills: ['RabbitMQ'] } }
+    const e = { subject: 'Application for RabbitMQ Developer', body: 'I am writing about the RabbitMQ Developer role. I have built scalable backend services and would welcome a short call.' }
+    assert.deepEqual(validateGeneratedEmail(e, titleCtx), [])
+})
+
+test('naming the role does not excuse a separate, real claim of the same gap skill', () => {
+    const titleCtx: ValidationContext = { ...ctx, jobCompany: null, jobTitle: 'RabbitMQ Developer', plan: { ...plan, gap_skills: ['RabbitMQ'] } }
+    const e = { subject: 'Application for RabbitMQ Developer', body: 'I am writing about the RabbitMQ Developer role. I have hands-on RabbitMQ experience and would welcome a short call.' }
+    assert.ok(validateGeneratedEmail(e, titleCtx).some((m) => m.includes('RabbitMQ')))
+})
+
 test('a follow-up has no plan and no evidence, and still must be grounded and name the job', () => {
     const followUp: ValidationContext = { ...ctx, plan: null, evidence: [], minWords: 5, maxWords: 90 }
     const ok = { subject: 'Following up', body: 'Following up on the Backend Engineer role at Globex. Is there an update I can share?' }
