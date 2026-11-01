@@ -33,6 +33,16 @@ export function ApplicationTimeline({ events }: { events: TimelineEvent[] }) {
                                     <p className="text-sm text-muted-foreground">Due {format(new Date(event.dueAt), 'PPP p')}</p>
                                 )}
                                 {event.detail && <p className="text-sm text-muted-foreground">{event.detail}</p>}
+                                {event.href && (
+                                    <a
+                                        href={event.href}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-sm text-primary underline underline-offset-4"
+                                    >
+                                        View in Gmail
+                                    </a>
+                                )}
                             </div>
                         </li>
                     ))}

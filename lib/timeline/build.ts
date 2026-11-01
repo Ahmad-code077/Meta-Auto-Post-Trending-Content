@@ -6,6 +6,7 @@
 // A later change to the same row can hide an earlier one. This is shown on the review page, not hidden.
 
 import { cancellationReason, failureReason } from '@/lib/followups/messages';
+import { gmailReplyLink } from '@/lib/inbox/gmail-link';
 
 export type TimelineTone = 'neutral' | 'success' | 'warning' | 'danger';
 
@@ -17,6 +18,9 @@ export interface TimelineEvent {
     // Set when the event refers to a future time, such as the date a follow-up is due.
     dueAt: string | null;
     tone: TimelineTone;
+    // Set only for a sent email, derived from its message_id. No email content is ever included --
+    // this is a link to read it in Gmail, not a copy of anything in it.
+    href: string | null;
 }
 
 export interface TimelineJob {
@@ -44,6 +48,7 @@ export interface TimelineEmail {
     error_code: string | null;
     resume_id: string | null;
     generation: { edited_at?: string } | null;
+    message_id: string | null;
 }
 
 const EDIT_TOLERANCE_MS = 5_000;
@@ -57,6 +62,7 @@ export function buildApplicationTimeline(job: TimelineJob, emails: TimelineEmail
             detail: null,
             dueAt: null,
             tone: 'neutral',
+            href: null,
         },
     ];
 
@@ -68,6 +74,7 @@ export function buildApplicationTimeline(job: TimelineJob, emails: TimelineEmail
             detail: 'Requirements were extracted from the posting.',
             dueAt: null,
             tone: 'neutral',
+            href: null,
         });
     }
 
@@ -79,6 +86,7 @@ export function buildApplicationTimeline(job: TimelineJob, emails: TimelineEmail
             detail: 'Detected in your mailbox. No further follow-ups will be sent.',
             dueAt: null,
             tone: 'success',
+            href: null,
         });
     }
 
@@ -110,6 +118,7 @@ function applicationEvents(email: TimelineEmail): TimelineEvent[] {
             detail: null,
             dueAt: null,
             tone: 'neutral',
+            href: null,
         });
     }
 
@@ -121,6 +130,7 @@ function applicationEvents(email: TimelineEmail): TimelineEvent[] {
             detail: 'The text was changed before it was sent.',
             dueAt: null,
             tone: 'neutral',
+            href: null,
         });
     }
 
@@ -132,6 +142,7 @@ function applicationEvents(email: TimelineEmail): TimelineEvent[] {
             detail: email.resume_id ? 'Your resume was attached.' : null,
             dueAt: null,
             tone: 'success',
+            href: email.message_id ? gmailReplyLink(email.message_id) : null,
         });
     }
 
@@ -143,6 +154,7 @@ function applicationEvents(email: TimelineEmail): TimelineEvent[] {
             detail: 'The message was not accepted. You can try again from the draft.',
             dueAt: null,
             tone: 'danger',
+            href: null,
         });
     }
 
@@ -156,7 +168,7 @@ function followUpEvents(email: TimelineEmail): TimelineEvent[] {
     const events: TimelineEvent[] = [];
 
     if (email.status === 'draft') {
-        events.push({ key: `fu-draft:${email.id}`, at: email.created_at, title: `${label} drafted`, detail: null, dueAt: null, tone: 'neutral' });
+        events.push({ key: `fu-draft:${email.id}`, at: email.created_at, title: `${label} drafted`, detail: null, dueAt: null, tone: 'neutral', href: null });
         return events;
     }
 
@@ -167,6 +179,7 @@ function followUpEvents(email: TimelineEmail): TimelineEvent[] {
         detail: null,
         dueAt: null,
         tone: 'neutral',
+        href: null,
     });
 
     if (email.status === 'scheduled') {
@@ -178,6 +191,7 @@ function followUpEvents(email: TimelineEmail): TimelineEvent[] {
                 detail: null,
                 dueAt: email.due_at,
                 tone: 'neutral',
+                href: null,
             });
         }
         if (attempts > 0) {
@@ -188,6 +202,7 @@ function followUpEvents(email: TimelineEmail): TimelineEvent[] {
                 detail: `Attempt ${attempts} did not complete.`,
                 dueAt: email.due_at,
                 tone: 'warning',
+                href: null,
             });
         }
     }
@@ -200,11 +215,20 @@ function followUpEvents(email: TimelineEmail): TimelineEvent[] {
             detail: attempts > 0 ? `Attempt ${attempts}.` : null,
             dueAt: null,
             tone: 'neutral',
+            href: null,
         });
     }
 
     if (email.status === 'sent' && email.sent_at) {
-        events.push({ key: `fu-sent:${email.id}`, at: email.sent_at, title: `${label} sent`, detail: null, dueAt: null, tone: 'success' });
+        events.push({
+            key: `fu-sent:${email.id}`,
+            at: email.sent_at,
+            title: `${label} sent`,
+            detail: null,
+            dueAt: null,
+            tone: 'success',
+            href: email.message_id ? gmailReplyLink(email.message_id) : null,
+        });
     }
 
     if (email.status === 'failed') {
@@ -215,6 +239,7 @@ function followUpEvents(email: TimelineEmail): TimelineEvent[] {
             detail: `${failureReason(email.error_code)}${attempts > 0 ? ` Attempts: ${attempts}.` : ''}`,
             dueAt: null,
             tone: 'danger',
+            href: null,
         });
     }
 
@@ -226,6 +251,7 @@ function followUpEvents(email: TimelineEmail): TimelineEvent[] {
             detail: `Follow-up #${n} was not sent because the recruiter replied.`,
             dueAt: null,
             tone: 'warning',
+            href: null,
         });
     } else if (email.status === 'cancelled') {
         events.push({
@@ -235,6 +261,7 @@ function followUpEvents(email: TimelineEmail): TimelineEvent[] {
             detail: cancellationReason(email.error_code),
             dueAt: null,
             tone: 'warning',
+            href: null,
         });
     }
 

@@ -5,6 +5,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildApplicationTimeline, followUpSummary, type TimelineEmail, type TimelineJob } from '../lib/timeline/build'
 import { isFollowUpFilter, jobIdsWithFollowUp } from '../lib/timeline/filters'
+import { gmailReplyLink } from '../lib/inbox/gmail-link'
 
 const USER = 'user-a'
 const OTHER_USER = 'user-b'
@@ -35,6 +36,7 @@ function email(overrides: Partial<TimelineEmail> & { id: string }): TimelineEmai
         error_code: null,
         resume_id: null,
         generation: null,
+        message_id: null,
         ...overrides,
     }
 }
@@ -70,6 +72,31 @@ test('a sent application shows draft, edit, and sent in that order, with the res
     assert.equal(sent.tone, 'success')
     assert.equal(sent.detail, 'Your resume was attached.')
     assert.equal(sent.at, '2026-09-28T10:20:00.000Z')
+})
+
+test('a sent application with a message_id links to it in Gmail', () => {
+    const events = buildApplicationTimeline(job, [
+        email({ id: 'app-1', status: 'sent', sent_at: '2026-09-28T10:20:00.000Z', message_id: 'abc@mail.gmail.com' }),
+    ])
+    const sent = events.find((e) => e.title === 'Application sent')!
+    assert.equal(sent.href, gmailReplyLink('abc@mail.gmail.com'))
+})
+
+test('a sent application with no message_id has no link', () => {
+    const events = buildApplicationTimeline(job, [
+        email({ id: 'app-1', status: 'sent', sent_at: '2026-09-28T10:20:00.000Z', message_id: null }),
+    ])
+    const sent = events.find((e) => e.title === 'Application sent')!
+    assert.equal(sent.href, null)
+})
+
+test('no other event carries a link, only a sent application or sent follow-up', () => {
+    const events = buildApplicationTimeline(job, [
+        email({ id: 'app-1', status: 'sent', sent_at: '2026-09-28T10:20:00.000Z', message_id: 'abc@mail.gmail.com' }),
+        followUp({ id: 'fu-1', follow_up_number: 1, status: 'failed', error_code: 'ETIMEDOUT', message_id: 'should-not-appear@x.com' }),
+    ])
+    const nonSent = events.filter((e) => e.title !== 'Application sent' && e.title !== 'Follow-up #1 sent')
+    assert.ok(nonSent.every((e) => e.href === null))
 })
 
 test('a failed send is shown as a danger event with a generic reason, not the raw error', () => {
@@ -138,6 +165,14 @@ test('a sent follow-up shows the sent time and nothing about cancellation', () =
     assert.equal(sent.tone, 'success')
     assert.equal(sent.at, '2026-10-05T09:01:00.000Z')
     assert.equal(events.some((e) => e.title.includes('cancelled')), false)
+})
+
+test('a sent follow-up with a message_id links to it in Gmail', () => {
+    const events = buildApplicationTimeline(job, [
+        followUp({ id: 'fu-1', follow_up_number: 1, status: 'sent', sent_at: '2026-10-05T09:01:00.000Z', message_id: 'fu-reply@mail.gmail.com' }),
+    ])
+    const sent = events.find((e) => e.title === 'Follow-up #1 sent')!
+    assert.equal(sent.href, gmailReplyLink('fu-reply@mail.gmail.com'))
 })
 
 test('a failed follow-up shows a safe reason and the attempt count, never a raw error', () => {

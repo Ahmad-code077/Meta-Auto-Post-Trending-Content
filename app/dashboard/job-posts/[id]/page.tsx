@@ -25,7 +25,7 @@ export default async function JobReviewPage({ params }: { params: Promise<{ id: 
 
     const { data: emails, error } = await supabase
         .from('application_emails')
-        .select('id, job_id, user_id, kind, follow_up_number, status, subject, body, to_email, sent_at, error, error_code, due_at, attempts, claimed_at, last_attempt_at, resume_id, generation, updated_at, created_at')
+        .select('id, job_id, user_id, kind, follow_up_number, status, subject, body, to_email, message_id, sent_at, error, error_code, due_at, attempts, claimed_at, last_attempt_at, resume_id, generation, updated_at, created_at')
         .eq('job_id', id)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
