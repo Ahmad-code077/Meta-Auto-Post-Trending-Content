@@ -4,6 +4,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { containsPhrase, normalizeText } from '../lib/harness/text'
+import { hashJobDescription } from '../lib/harness/analyze-job'
 import { collectEvidence, findProfileSkill, gapSkillsFrom } from '../lib/harness/match'
 import { aggregateGapSkills } from '../lib/harness/gap-skills'
 import { buildWritingPlan } from '../lib/harness/plan'
@@ -219,6 +220,22 @@ test('aggregation groups case/punctuation variants of the same skill and skips u
     const summaries = aggregateGapSkills(jobs, profile.skills)
     assert.equal(summaries.length, 1)
     assert.equal(summaries[0].jobCount, 2)
+})
+
+// ---------------------------------------------------------------------------
+// hashJobDescription -- what duplicate job detection relies on
+// ---------------------------------------------------------------------------
+
+test('hashJobDescription ignores leading/trailing whitespace, used for duplicate detection', () => {
+    const base = 'Senior Backend Engineer at NovaFlow Systems.'
+    assert.equal(hashJobDescription(base), hashJobDescription(`  ${base}  `))
+    assert.equal(hashJobDescription(base), hashJobDescription(`\n${base}\n\n`))
+})
+
+test('hashJobDescription is sensitive to whitespace changes inside the text', () => {
+    const a = 'Line one.\nLine two.'
+    const b = 'Line one.\n\nLine two.'
+    assert.notEqual(hashJobDescription(a), hashJobDescription(b), 'an extra blank line in the middle is a different hash -- duplicate detection would miss this')
 })
 
 test('profile links must be https URLs', () => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useTransition } from 'react'
+import { useState, useTransition } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { createApplicationFromJobDescription } from '@/app/actions/applications'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
@@ -32,8 +33,9 @@ export default function NewApplicationPage() {
     const { toast } = useToast()
     const router = useRouter()
     const [isPending, startTransition] = useTransition()
+    const [duplicate, setDuplicate] = useState<{ jobId: string; title: string | null; company: string | null } | null>(null)
 
-    const { control, handleSubmit, reset, register, formState: { errors } } = useForm<FormValues>({
+    const { control, handleSubmit, reset, register, getValues, formState: { errors } } = useForm<FormValues>({
         resolver: zodResolver(formSchema),
         defaultValues: { jobDescription: '' },
     })
@@ -41,23 +43,38 @@ export default function NewApplicationPage() {
     const description = useWatch({ control, name: 'jobDescription', defaultValue: '' })
     const remaining = MIN_LENGTH - description.trim().length
 
+    const finish = (result: Awaited<ReturnType<typeof createApplicationFromJobDescription>>) => {
+        if (!result.success) {
+            toast({ title: 'Could not save', description: result.message, variant: 'destructive' })
+            return
+        }
+
+        if (result.data?.status === 'duplicate') {
+            setDuplicate({ jobId: result.data.existingJobId, title: result.data.existingTitle, company: result.data.existingCompany })
+            return
+        }
+
+        setDuplicate(null)
+        toast({
+            title: result.data?.draftCreated ? 'Draft ready for review' : 'Application saved',
+            description: result.data?.message,
+            variant: result.data?.draftCreated ? 'default' : 'destructive',
+        })
+        reset({ jobDescription: '' })
+        // Land on the review step, where the draft is edited and sent.
+        router.push(result.data ? `/dashboard/job-posts/${result.data.jobId}` : '/dashboard/job-posts')
+    }
+
     const onSubmit = (values: FormValues) => {
+        setDuplicate(null)
         startTransition(async () => {
-            const result = await createApplicationFromJobDescription(values.jobDescription)
+            finish(await createApplicationFromJobDescription(values.jobDescription))
+        })
+    }
 
-            if (!result.success) {
-                toast({ title: 'Could not save', description: result.message, variant: 'destructive' })
-                return
-            }
-
-            toast({
-                title: result.data?.draftCreated ? 'Draft ready for review' : 'Application saved',
-                description: result.data?.message,
-                variant: result.data?.draftCreated ? 'default' : 'destructive',
-            })
-            reset({ jobDescription: '' })
-            // Land on the review step, where the draft is edited and sent.
-            router.push(result.data?.jobId ? `/dashboard/job-posts/${result.data.jobId}` : '/dashboard/job-posts')
+    const createAnyway = () => {
+        startTransition(async () => {
+            finish(await createApplicationFromJobDescription(getValues('jobDescription'), { force: true }))
         })
     }
 
@@ -73,6 +90,24 @@ export default function NewApplicationPage() {
 
                 <form onSubmit={handleSubmit(onSubmit)} noValidate>
                     <CardContent className="space-y-2">
+                        {duplicate && (
+                            <Alert className="mb-2">
+                                <AlertTitle>You already added this exact posting</AlertTitle>
+                                <AlertDescription>
+                                    <p>
+                                        Saved as{' '}
+                                        <Link href={`/dashboard/job-posts/${duplicate.jobId}`} className="underline underline-offset-4">
+                                            {duplicate.title ?? 'Untitled role'}{duplicate.company ? ` at ${duplicate.company}` : ''}
+                                        </Link>
+                                        .
+                                    </p>
+                                    <Button type="button" size="sm" variant="outline" disabled={isPending} onClick={createAnyway}>
+                                        {isPending && <Loader2 className="animate-spin" />}
+                                        Create anyway
+                                    </Button>
+                                </AlertDescription>
+                            </Alert>
+                        )}
                         <div className="flex items-center justify-between">
                             <Label htmlFor="jobDescription">Job posting</Label>
                             <span className={cn('text-xs tabular-nums', remaining > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-muted-foreground')}>

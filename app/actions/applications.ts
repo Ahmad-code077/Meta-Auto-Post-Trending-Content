@@ -6,6 +6,7 @@ import { revalidateApplicationPaths } from '@/lib/applications/revalidate';
 import { draftGuard, parseGenerationInput } from '@/lib/generation/guard';
 import { GenerationError } from '@/lib/harness/write';
 import { createApplicationDraft, createFollowUpDraft, ensureJobAnalysis, getOwnedJob, HarnessError } from '@/lib/harness/application';
+import { hashJobDescription } from '@/lib/harness/analyze-job';
 import { applyRecruiterEmailLock } from '@/lib/jobs/editable';
 import { revertStatusAfterKeepFollowingUp } from '@/lib/jobs/reply-review';
 import { sendApplicationEmail } from '@/lib/mail/send';
@@ -55,10 +56,18 @@ function failure(error: unknown, fallback: string): { success: false; message: s
     return { success: false, message: fallback };
 }
 
+export type CreateApplicationResult =
+    | { status: 'duplicate'; existingJobId: string; existingTitle: string | null; existingCompany: string | null }
+    | { status: 'created'; jobId: string; draftCreated: boolean; message: string };
+
 // Stores a pasted posting, analyzes it, and prepares a draft. Nothing is sent.
+// Refuses by default when the exact same text was already added and analyzed (byte-identical,
+// via analysis_hash -- no new column, that hash is already set once a job is analyzed). Pass
+// force: true to create it anyway; the UI uses this for an explicit "create anyway" confirmation.
 export async function createApplicationFromJobDescription(
-    rawPost: string
-): Promise<ActionResult<{ jobId: string; draftCreated: boolean; message: string }>> {
+    rawPost: string,
+    options: { force?: boolean } = {}
+): Promise<ActionResult<CreateApplicationResult>> {
     try {
         const text = rawPost.trim();
         if (text.length < JOB_DESCRIPTION_MIN || text.length > JOB_DESCRIPTION_MAX) {
@@ -66,6 +75,24 @@ export async function createApplicationFromJobDescription(
         }
 
         const { supabase, user } = await requireUser();
+
+        if (!options.force) {
+            const hash = hashJobDescription(text);
+            const { data: existing } = await supabase
+                .from('jobs')
+                .select('id, title, company')
+                .eq('user_id', user.id)
+                .eq('analysis_hash', hash)
+                .limit(1)
+                .maybeSingle();
+
+            if (existing) {
+                return {
+                    success: true,
+                    data: { status: 'duplicate', existingJobId: existing.id, existingTitle: existing.title, existingCompany: existing.company },
+                };
+            }
+        }
 
         const { data: job, error } = await supabase
             .from('jobs')
@@ -89,7 +116,7 @@ export async function createApplicationFromJobDescription(
             revalidateApplicationPaths(job.id);
             return {
                 success: true,
-                data: { jobId: job.id, draftCreated: true, message: 'Draft created. Review it, then send.' },
+                data: { status: 'created', jobId: job.id, draftCreated: true, message: 'Draft created. Review it, then send.' },
             };
         } catch (draftError) {
             // The job is saved even when drafting fails, so the user can fix the profile and retry.
@@ -97,7 +124,7 @@ export async function createApplicationFromJobDescription(
             if (!(draftError instanceof HarnessError)) console.error('Draft creation failed:', draftError);
             return {
                 success: true,
-                data: { jobId: job.id, draftCreated: false, message: `Saved. ${message}` },
+                data: { status: 'created', jobId: job.id, draftCreated: false, message: `Saved. ${message}` },
             };
         }
     } catch (error) {
