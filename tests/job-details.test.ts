@@ -57,17 +57,17 @@ test('revertStatusAfterKeepFollowingUp picks the stage matching how many follow-
 // Gmail link, derived from reply_message_id at render time -- nothing is stored
 // ---------------------------------------------------------------------------
 
-test('gmailReplyLink URL-encodes the message id, including @ and +', () => {
+test('gmailReplyLink searches by rfc822msgid, URL-encoding the message id including @ and +', () => {
     assert.equal(
         gmailReplyLink('abc+def@mail.gmail.com'),
-        'https://mail.google.com/mail/u/0/#inbox/abc%2Bdef%40mail.gmail.com'
+        'https://mail.google.com/mail/u/0/#search/rfc822msgid:abc%2Bdef%40mail.gmail.com'
     )
 })
 
 test('gmailReplyLink strips surrounding <> brackets if still present', () => {
     assert.equal(
         gmailReplyLink('<abc@mail.gmail.com>'),
-        'https://mail.google.com/mail/u/0/#inbox/abc%40mail.gmail.com'
+        'https://mail.google.com/mail/u/0/#search/rfc822msgid:abc%40mail.gmail.com'
     )
 })
 
