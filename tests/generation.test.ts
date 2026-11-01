@@ -51,7 +51,7 @@ function model(outcomes: Array<GeneratedEmail | 'throw'>) {
 }
 
 const write = (call: ModelCall, userNote: string | null = null) =>
-    writeApplicationEmail({ jobId: 'job-1', analysis, plan, evidence, profile, sourceText: 'Backend Engineer at Globex', userNote, call })
+    writeApplicationEmail({ jobId: 'job-1', analysis, plan, evidence, profile, userNote, call })
 
 test('each generation makes at most the cap of model calls, and a new generation gets its own budget', async () => {
     // Two separate generations, each failing every time. Without per-generation budgets the second would stop early.

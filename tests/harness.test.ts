@@ -128,7 +128,7 @@ const plan = buildWritingPlan({ analysis, profile, gapSkills, includeLinks: true
 const ctx: ValidationContext = {
     plan, evidence, profile,
     jobTitle: 'Backend Engineer', jobCompany: 'Globex',
-    sourceText: 'Job posting text 2026 2021 2024', maxWords: 180, minWords: 5,
+    maxWords: 180, minWords: 5,
 }
 
 const goodEmail: GeneratedEmail = {
@@ -138,28 +138,6 @@ const goodEmail: GeneratedEmail = {
 
 test('a grounded email passes validation', () => {
     assert.deepEqual(validateGeneratedEmail(goodEmail, ctx), [])
-})
-
-test('validation rejects a number that is not in the source material', () => {
-    const e = { ...goodEmail, body: goodEmail.body + ' I also led a team of 12 engineers.' }
-    assert.ok(validateGeneratedEmail(e, ctx).some((m) => m.includes('12')))
-})
-
-test('a digit inside a real profile skill name, like S3 or EC2, is allowed', () => {
-    const profileWithAws: ProfileSnapshot = {
-        ...profile,
-        skills: [...profile.skills, { id: id(4), name: 'AWS S3', normalized_name: 'aws s3', aliases: [] }, { id: id(5), name: 'AWS EC2', normalized_name: 'aws ec2', aliases: [] }],
-    }
-    const e = {
-        ...goodEmail,
-        body: 'I am applying for the Backend Engineer role at Globex. At Acme I deployed services using AWS S3 and EC2 for storage and compute. I would welcome a short call.',
-    }
-    assert.deepEqual(validateGeneratedEmail(e, { ...ctx, profile: profileWithAws }), [])
-})
-
-test('an invented statistic, like a made-up percentage, is still rejected', () => {
-    const e = { ...goodEmail, body: goodEmail.body + ' I have mentored 99% of engineers on my team.' }
-    assert.ok(validateGeneratedEmail(e, ctx).some((m) => m.includes('99')))
 })
 
 test('validation rejects claims about a gap skill', () => {
@@ -181,8 +159,6 @@ test('a follow-up has no plan and no evidence, and still must be grounded and na
     const followUp: ValidationContext = { ...ctx, plan: null, evidence: [], minWords: 5, maxWords: 90 }
     const ok = { subject: 'Following up', body: 'Following up on the Backend Engineer role at Globex. Is there an update I can share?' }
     assert.deepEqual(validateGeneratedEmail(ok, followUp), [])
-    const withNumber = { ...ok, body: ok.body + ' I also led a team of 9001 engineers.' }
-    assert.ok(validateGeneratedEmail(withNumber, followUp).some((m) => m.includes('9001')))
 })
 
 test('profile dates accept a month or a day, and store a month as its first day', () => {

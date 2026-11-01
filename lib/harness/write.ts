@@ -70,8 +70,6 @@ export interface WriteApplicationInput {
     plan: WritingPlan;
     evidence: EvidenceItem[];
     profile: ProfileSnapshot;
-    // Text the numbers in the email may come from: the job posting plus the profile dates.
-    sourceText: string;
     // Optional style request from the candidate. Already sanitized by the caller.
     userNote?: string | null;
     // Model call, injectable for tests. Defaults to the OpenAI client.
@@ -107,7 +105,6 @@ export async function writeApplicationEmail(input: WriteApplicationInput): Promi
             profile: input.profile,
             jobTitle: input.analysis.title,
             jobCompany: input.analysis.company,
-            sourceText: input.sourceText,
             maxWords: MAX_APPLICATION_WORDS,
             minWords: MIN_BODY_WORDS,
         }),
@@ -143,7 +140,6 @@ export async function writeFollowUpEmail(input: WriteFollowUpInput): Promise<Wri
             profile: input.profile,
             jobTitle: input.job.title,
             jobCompany: input.job.company,
-            sourceText: `${input.previous.body} ${input.daysSinceSent}`,
             maxWords: MAX_FOLLOW_UP_WORDS,
             minWords: 15,
         }),

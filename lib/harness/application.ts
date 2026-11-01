@@ -114,7 +114,6 @@ export async function createApplicationDraft(
         plan,
         evidence,
         profile,
-        sourceText: `${job.raw_post}\n${yearsIn(profile).join(' ')}`,
         userNote: options.note ?? null,
     });
 
@@ -322,15 +321,4 @@ function signature(profile: ProfileSnapshot, includeLinks: boolean): string {
     }
 
     return lines.join('\n');
-}
-
-// Years that appear in the profile. The writer may cite them, so validation must allow them.
-function yearsIn(profile: ProfileSnapshot): string[] {
-    const dates = [
-        ...profile.experiences.flatMap((e) => [e.start_date, e.end_date]),
-        ...profile.projects.flatMap((p) => [p.start_date, p.end_date]),
-    ];
-    return dates
-        .filter((d): d is string => Boolean(d))
-        .map((d) => d.slice(0, 4));
 }

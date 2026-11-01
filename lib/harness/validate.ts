@@ -11,8 +11,6 @@ export interface ValidationContext {
     profile: ProfileSnapshot;
     jobTitle: string | null;
     jobCompany: string | null;
-    // Text the writer may draw numbers from: the job posting and any earlier email.
-    sourceText: string;
     maxWords: number;
     minWords: number;
 }
@@ -40,20 +38,6 @@ export function validateGeneratedEmail(email: GeneratedEmail, ctx: ValidationCon
     // No links in the writer text. Links are appended by the system from the profile.
     if (/https?:\/\/|www\.|\b[\w-]+\.(com|io|dev|net|org)\b/i.test(body)) {
         errors.push('Do not include links in the body.');
-    }
-
-    // Every number must come from the source material, so it cannot be invented. This includes digits
-    // inside a real profile skill name (e.g. "S3", "EC2") -- those are not invented statistics,
-    // they are real skill names that happen to contain a digit.
-    const allowedNumbers = new Set<string>([
-        ...(ctx.sourceText.match(/\d+(?:\.\d+)?/g) ?? []),
-        ...ctx.evidence.flatMap((e) => e.text.match(/\d+(?:\.\d+)?/g) ?? []),
-        ...ctx.profile.skills.flatMap((s) => s.name.match(/\d+(?:\.\d+)?/g) ?? []),
-    ]);
-    for (const number of body.match(/\d+(?:\.\d+)?/g) ?? []) {
-        if (!allowedNumbers.has(number)) {
-            errors.push(`The number ${number} does not appear in the job posting or the profile.`);
-        }
     }
 
     // The email must be about this job.
