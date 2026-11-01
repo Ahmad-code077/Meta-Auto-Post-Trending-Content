@@ -131,6 +131,10 @@ test('a replied application needs nothing, and follow-ups have stopped', () => {
     assert.deepEqual(deriveNextAction({ status: 'replied' }, [followUp({ job_id: 'j', follow_up_number: 1, status: 'cancelled', error_code: 'RECIPIENT_REPLIED' })]), { kind: 'replied', attention: false })
 })
 
+test('a job awaiting review of its reply needs attention, not "no action needed"', () => {
+    assert.deepEqual(deriveNextAction({ status: 'awaiting_review' }, [followUp({ job_id: 'j', follow_up_number: 1, status: 'scheduled', due_at: '2026-10-10T09:00:00.000Z' })]), { kind: 'review_reply', attention: true })
+})
+
 test('a closed application needs nothing', () => {
     assert.deepEqual(deriveNextAction({ status: 'closed_no_response' }, []), { kind: 'none', attention: false })
 })
@@ -147,6 +151,7 @@ test('next action labels describe the action in plain words', () => {
     assert.equal(nextActionLabel({ kind: 'review_draft', attention: true }), 'Review draft')
     assert.equal(nextActionLabel({ kind: 'retry_follow_up', attention: true, followUpNumber: 2 }), 'Retry follow-up 2')
     assert.equal(nextActionLabel({ kind: 'replied', attention: false }), 'Recruiter replied')
+    assert.equal(nextActionLabel({ kind: 'review_reply', attention: true }), 'Review reply')
     assert.equal(nextActionLabel({ kind: 'waiting_for_reply', attention: false }), 'Waiting for reply')
 })
 

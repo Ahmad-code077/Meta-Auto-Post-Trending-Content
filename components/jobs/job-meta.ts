@@ -7,6 +7,7 @@ export const STATUS_CONFIG: Record<JobStatus, { label: string; variant: 'default
     sent: { label: 'Sent', variant: 'default' },
     follow_up_1: { label: 'Follow-up 1', variant: 'outline' },
     follow_up_2: { label: 'Follow-up 2', variant: 'outline' },
+    awaiting_review: { label: 'Reply pending review', variant: 'secondary' },
     replied: { label: 'Replied', variant: 'default' },
     closed_no_response: { label: 'Closed, no response', variant: 'destructive' },
 }

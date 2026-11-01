@@ -5,6 +5,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { runFollowUpScheduler, type FollowUpRow, type FollowUpStore, type GeneratedFollowUp, type SchedulerDeps } from '../lib/followups/scheduler'
+import { runGraceWindowCheck, type GraceStore, type PendingReview } from '../lib/followups/grace'
 import { classifyFailure, isDue, isStaleClaim, nextAttemptAt, PermanentFollowUpError, awaitingReply, MAX_ATTEMPTS, followUpDueAt, FOLLOW_UP_1_BUSINESS_DAYS, type FailureDecision } from '../lib/followups/policy'
 import { addBusinessDays, followUpTimeZone } from '../lib/followups/schedule'
 import { setLogSink, type LogLevel } from '../lib/log/logger'
@@ -414,6 +415,21 @@ test('a follow-up for a job that has been replied to is cancelled and never sent
     assert.equal(summary.cancelled, 1)
 })
 
+// awaitingReply('awaiting_review', ...) is false for every follow-up number (lib/followups/policy.ts),
+// so this already falls out of the existing gate -- no scheduler change was needed for the new status.
+// The grace-window sweep (lib/followups/grace.ts) is expected to resolve this before it ever gets here.
+test('a follow-up for a job awaiting review of its reply is skipped, never sent', async () => {
+    const store = new MemoryStore([row()], [job({ status: 'awaiting_review' })])
+    const clock = new Clock(T0)
+    const { deps, calls } = fakeDeps(store, clock)
+
+    const summary = await runFollowUpScheduler(deps)
+
+    assert.equal(store.get('fu-1').status, 'cancelled')
+    assert.equal(calls.transmit, 0)
+    assert.equal(summary.cancelled, 1)
+})
+
 test('a processing row whose worker stopped is failed as stale and never resent', async () => {
     const stale = row({ status: 'processing', claim_token: 'dead-worker', claimed_at: '2026-10-13T08:00:00.000Z', attempts: 1 })
     const store = new MemoryStore([stale], [job()])
@@ -694,4 +710,76 @@ test('the window is checked with the configured zone: the same instant is inside
 
     assert.equal(calls.transmit, 0)
     assert.equal(summary.rescheduled, 1)
+})
+
+// ---------------------------------------------------------------------------
+// Grace window: jobs awaiting review, resolved by the clock rather than a new reply
+// ---------------------------------------------------------------------------
+
+class MemoryGraceStore implements GraceStore {
+    confirmed: { userId: string; jobId: string; followUpId: string }[] = []
+
+    constructor(public rows: PendingReview[], private resolved = new Set<string>()) {}
+
+    async listAwaitingReviewWithPendingFollowUp() {
+        return this.rows.filter((r) => !this.resolved.has(r.jobId))
+    }
+
+    async autoConfirm({ userId, jobId, followUpId }: { userId: string; jobId: string; followUpId: string; now: Date }) {
+        if (this.resolved.has(jobId)) return false
+        this.resolved.add(jobId)
+        this.confirmed.push({ userId, jobId, followUpId })
+        return true
+    }
+}
+
+function pendingReview(overrides: Partial<PendingReview> = {}): PendingReview {
+    return { userId: 'user-1', jobId: 'job-1', followUpId: 'fu-1', dueAt: '2026-10-15T09:00:00.000Z', ...overrides }
+}
+
+test('grace: a job whose follow-up is not due soon is left alone', async () => {
+    const now = new Date('2026-10-10T09:00:00.000Z')
+    const store = new MemoryGraceStore([pendingReview({ dueAt: '2026-10-20T09:00:00.000Z' })])
+
+    const summary = await runGraceWindowCheck(store, now)
+
+    assert.equal(summary.checked, 1)
+    assert.equal(summary.auto_confirmed, 0)
+    assert.equal(store.confirmed.length, 0)
+})
+
+test('grace: a job whose follow-up is due within 2 days is auto-confirmed', async () => {
+    const now = new Date('2026-10-10T09:00:00.000Z')
+    const store = new MemoryGraceStore([pendingReview({ dueAt: '2026-10-11T09:00:00.000Z' })])
+
+    const summary = await runGraceWindowCheck(store, now)
+
+    assert.equal(summary.auto_confirmed, 1)
+    assert.deepEqual(store.confirmed, [{ userId: 'user-1', jobId: 'job-1', followUpId: 'fu-1' }])
+})
+
+test('grace: a job with no scheduled follow-up at all never appears, so it is never touched', async () => {
+    // listAwaitingReviewWithPendingFollowUp only ever returns rows that do have one -- a job with
+    // none simply never shows up, and stays awaiting_review indefinitely until a person decides.
+    const now = new Date('2026-10-10T09:00:00.000Z')
+    const store = new MemoryGraceStore([])
+
+    const summary = await runGraceWindowCheck(store, now)
+
+    assert.equal(summary.checked, 0)
+    assert.equal(summary.auto_confirmed, 0)
+})
+
+test('grace: several jobs are checked independently, only the due ones are confirmed', async () => {
+    const now = new Date('2026-10-10T09:00:00.000Z')
+    const store = new MemoryGraceStore([
+        pendingReview({ jobId: 'job-far', followUpId: 'fu-far', dueAt: '2026-10-25T09:00:00.000Z' }),
+        pendingReview({ jobId: 'job-near', followUpId: 'fu-near', dueAt: '2026-10-11T09:00:00.000Z' }),
+    ])
+
+    const summary = await runGraceWindowCheck(store, now)
+
+    assert.equal(summary.checked, 2)
+    assert.equal(summary.auto_confirmed, 1)
+    assert.deepEqual(store.confirmed.map((c) => c.jobId), ['job-near'])
 })

@@ -2,7 +2,7 @@
 // because the input and output contain the candidate's profile and the email text.
 
 export interface LlmDebugContext {
-    stage: 'analysis' | 'application_email' | 'follow_up_email';
+    stage: 'analysis' | 'application_email' | 'follow_up_email' | 'reply_classification';
     jobId?: string | null;
     evidenceCount?: number;
     attempt?: number;

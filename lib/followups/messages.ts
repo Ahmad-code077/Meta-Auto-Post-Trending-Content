@@ -22,6 +22,8 @@ const CANCEL_TEXT: Record<string, string> = {
     SUPERSEDED: 'Replaced by a follow-up that was sent.',
     JOB_NOT_AWAITING_REPLY: 'The application no longer awaited a reply.',
     RECIPIENT_REPLIED: 'The recruiter replied, so follow-ups stopped.',
+    AUTO_CONFIRMED_REPLY: 'Auto-confirmed 2 days before this follow-up was due.',
+    MANUAL_MARKED_REPLIED: 'You marked this application as replied.',
 };
 
 export function failureReason(errorCode: string | null | undefined): string {

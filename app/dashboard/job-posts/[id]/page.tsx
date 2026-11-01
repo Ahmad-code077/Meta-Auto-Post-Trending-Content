@@ -16,7 +16,7 @@ export default async function JobReviewPage({ params }: { params: Promise<{ id: 
 
     const { data: job } = await supabase
         .from('jobs')
-        .select('id, user_id, title, company, recruiter_name, recruiter_email, location, work_type, timings, status, raw_post, created_at, analyzed_at, sent_at, replied_at')
+        .select('id, user_id, title, company, recruiter_name, recruiter_email, location, work_type, timings, status, raw_post, created_at, analyzed_at, sent_at, replied_at, reply_classification, reply_message_id')
         .eq('id', id)
         .eq('user_id', user.id)
         .maybeSingle()
@@ -143,7 +143,7 @@ export default async function JobReviewPage({ params }: { params: Promise<{ id: 
                 resumeName={resume?.file_name ?? null}
             />
 
-            <FollowUpPanel jobId={job.id} jobStatus={job.status} followUps={followUps} />
+            <FollowUpPanel jobId={job.id} jobStatus={job.status} followUps={followUps} replyClassification={job.reply_classification} replyMessageId={job.reply_message_id} />
 
             <ApplicationTimeline events={timeline} />
         </div>

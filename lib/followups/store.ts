@@ -6,6 +6,7 @@ import type { Job } from '@/lib/types/jobs';
 import { STALE_CLAIM_MINUTES } from './policy';
 import type { FollowUpRow, FollowUpStore, GeneratedFollowUp } from './scheduler';
 import type { FailureDecision } from './policy';
+import type { GraceStore } from './grace';
 
 const ROW_COLUMNS = 'id, user_id, job_id, follow_up_number, status, due_at, attempts, to_email, in_reply_to, references_header, subject, body, claim_token, claimed_at';
 
@@ -179,6 +180,61 @@ export function createSupabaseFollowUpStore(supabase: SupabaseClient): FollowUpS
 
             if (error) throw new Error(`Could not fail stale claim: ${error.message}`);
             return data !== null;
+        },
+    };
+}
+
+const AUTO_CONFIRM_REASON = { error: 'Auto-confirmed 2 days before the follow-up was due.', error_code: 'AUTO_CONFIRMED_REPLY' };
+
+export function createSupabaseGraceStore(supabase: SupabaseClient): GraceStore {
+    return {
+        async listAwaitingReviewWithPendingFollowUp() {
+            const { data, error } = await supabase
+                .from('application_emails')
+                .select('id, user_id, job_id, due_at, jobs!inner(status)')
+                .eq('kind', 'follow_up')
+                .eq('status', 'scheduled')
+                .eq('jobs.status', 'awaiting_review')
+                .not('due_at', 'is', null);
+
+            if (error) throw new Error(`Could not list jobs awaiting review: ${error.message}`);
+
+            return (data ?? []).map((row: Record<string, unknown>) => ({
+                userId: row.user_id as string,
+                jobId: row.job_id as string,
+                followUpId: row.id as string,
+                dueAt: row.due_at as string,
+            }));
+        },
+
+        async autoConfirm({ userId, jobId, followUpId, now }) {
+            const { data, error } = await supabase
+                .from('jobs')
+                .update({ status: 'replied', replied_at: now.toISOString() })
+                .eq('id', jobId)
+                .eq('user_id', userId)
+                .eq('status', 'awaiting_review')
+                .select('id')
+                .maybeSingle();
+
+            if (error) throw new Error(`Could not auto-confirm reply: ${error.message}`);
+            if (!data) return false;
+
+            const { error: cancelError } = await supabase
+                .from('application_emails')
+                .update({
+                    status: 'cancelled',
+                    due_at: null,
+                    claim_token: null,
+                    error: AUTO_CONFIRM_REASON.error,
+                    error_code: AUTO_CONFIRM_REASON.error_code,
+                    updated_at: now.toISOString(),
+                })
+                .eq('id', followUpId)
+                .eq('status', 'scheduled');
+
+            if (cancelError) throw new Error(`Could not cancel follow-up: ${cancelError.message}`);
+            return true;
         },
     };
 }

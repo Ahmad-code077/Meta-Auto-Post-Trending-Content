@@ -13,6 +13,7 @@ import { addressOf, extractMessageIds, normalizeMessageId } from './headers';
 export const AWAITING_REPLY_STATUSES = ['sent', 'follow_up_1', 'follow_up_2'] as const;
 
 export interface InboundMessage {
+    uid: number;                // IMAP UID, used only to fetch this message's body if it matches
     messageId: string | null;
     inReplyTo: string | null;
     references: string | null;
@@ -22,13 +23,15 @@ export interface InboundMessage {
     automated: boolean;        // Auto-Submitted, bounces, and no-reply senders
 }
 
-// One sent email that could receive a reply. The job fields are only used for the weak subject fallback.
+// One sent email that could receive a reply. The job fields are only used for the weak subject
+// fallback and, for job_last_inbound_message_id, to dedup a reply that never changes job_status.
 export interface OutboundEmail {
     user_id: string;
     job_id: string;
     job_status: string;
     job_title: string | null;
     job_company: string | null;
+    job_last_inbound_message_id: string | null;
     to_email: string;
     message_id: string;
     sent_at: string;

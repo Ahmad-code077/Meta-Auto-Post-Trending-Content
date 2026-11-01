@@ -6,6 +6,8 @@ import { isAuthorizedCronRequest } from '@/lib/auth/cron';
 import { logger, errorFields } from '@/lib/log/logger';
 import { createFollowUpDeps } from '@/lib/followups/deps';
 import { runFollowUpScheduler } from '@/lib/followups/scheduler';
+import { runGraceWindowCheck } from '@/lib/followups/grace';
+import { createSupabaseGraceStore } from '@/lib/followups/store';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
@@ -24,8 +26,14 @@ export async function GET(request: Request) {
     }
 
     try {
-        const summary = await runFollowUpScheduler(createFollowUpDeps(createAdminClient()));
-        return Response.json({ ok: true, ...summary });
+        const supabase = createAdminClient();
+
+        // Resolves any job awaiting review whose follow-up is now due soon, before the scheduler below
+        // ever sees it -- so a follow-up is never sent over a reply nobody has looked at.
+        const grace = await runGraceWindowCheck(createSupabaseGraceStore(supabase), new Date());
+
+        const summary = await runFollowUpScheduler(createFollowUpDeps(supabase));
+        return Response.json({ ok: true, grace, ...summary });
     } catch (error) {
         logger.error('followup.scheduler.crashed', errorFields(error));
         return Response.json({ ok: false, error: 'Scheduler failed' }, { status: 500 });

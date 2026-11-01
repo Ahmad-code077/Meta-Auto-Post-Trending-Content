@@ -87,3 +87,12 @@ export function isStaleClaim(claim: { status: string; claimed_at: string | null 
 export function awaitingReply(jobStatus: string, followUpNumber: number): boolean {
     return followUpNumber === 1 ? jobStatus === 'sent' : jobStatus === 'follow_up_1';
 }
+
+export const REPLY_REVIEW_GRACE_DAYS = 2;
+
+// True once a pending follow-up is due soon enough that an unreviewed engaged/rejected reply must be
+// auto-resolved rather than risk sending the follow-up anyway. No pending follow-up (dueAt null)
+// means no deadline, so it is never auto-resolved by this rule -- it waits for a person instead.
+export function withinReplyGraceWindow(dueAt: Date | null, now: Date, graceDays: number = REPLY_REVIEW_GRACE_DAYS): boolean {
+    return dueAt !== null && dueAt.getTime() - now.getTime() <= graceDays * 86_400_000;
+}

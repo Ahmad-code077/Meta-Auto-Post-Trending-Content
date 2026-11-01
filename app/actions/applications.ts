@@ -7,6 +7,7 @@ import { draftGuard, parseGenerationInput } from '@/lib/generation/guard';
 import { GenerationError } from '@/lib/harness/write';
 import { createApplicationDraft, createFollowUpDraft, ensureJobAnalysis, getOwnedJob, HarnessError } from '@/lib/harness/application';
 import { applyRecruiterEmailLock } from '@/lib/jobs/editable';
+import { revertStatusAfterKeepFollowingUp } from '@/lib/jobs/reply-review';
 import { sendApplicationEmail } from '@/lib/mail/send';
 import type { ActionResult } from '@/lib/types/actions';
 import type { ApplicationEmail } from '@/lib/types/applications';
@@ -219,6 +220,92 @@ export async function restoreJob(jobId: string): Promise<ActionResult<null>> {
         return { success: true, data: null };
     } catch (error) {
         return failure(error, 'The application could not be restored');
+    }
+}
+
+// Confirms an engaged/rejected reply that is awaiting your review: status becomes 'replied', and the
+// pending follow-up (never cancelled while awaiting review) is cancelled now. Conditional on the job
+// still being awaiting_review, so a click that loses a race against the 2-day auto-confirm (see
+// lib/followups/grace.ts) reports a conflict instead of double-processing.
+export async function markJobReplied(jobId: string): Promise<ActionResult<null>> {
+    try {
+        const { supabase, user } = await requireUser();
+
+        const { data: job, error } = await supabase
+            .from('jobs')
+            .update({ status: 'replied', replied_at: new Date().toISOString() })
+            .eq('id', jobId)
+            .eq('user_id', user.id)
+            .eq('status', 'awaiting_review')
+            .select('id')
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!job) return { success: false, message: 'This application is not awaiting review.' };
+
+        const { error: cancelError } = await supabase
+            .from('application_emails')
+            .update({
+                status: 'cancelled',
+                due_at: null,
+                claim_token: null,
+                error: 'Marked as replied by you.',
+                error_code: 'MANUAL_MARKED_REPLIED',
+                updated_at: new Date().toISOString(),
+            })
+            .eq('user_id', user.id)
+            .eq('job_id', jobId)
+            .eq('kind', 'follow_up')
+            .eq('status', 'scheduled');
+
+        if (cancelError) throw cancelError;
+
+        revalidateApplicationPaths(jobId);
+        return { success: true, data: null };
+    } catch (error) {
+        return failure(error, 'This application could not be marked as replied');
+    }
+}
+
+// Dismisses the classification: the reply is not treated as a real answer, and the job returns to
+// awaiting a reply at whichever stage it was at (lib/jobs/reply-review.ts). The pending follow-up was
+// never touched while awaiting_review, so it is simply eligible to send again.
+export async function keepFollowingUp(jobId: string): Promise<ActionResult<null>> {
+    try {
+        const { supabase, user } = await requireUser();
+
+        const { data: job, error: loadError } = await supabase
+            .from('jobs')
+            .select('id, follow_up_count')
+            .eq('id', jobId)
+            .eq('user_id', user.id)
+            .eq('status', 'awaiting_review')
+            .maybeSingle();
+
+        if (loadError) throw loadError;
+        if (!job) return { success: false, message: 'This application is not awaiting review.' };
+
+        const { data, error } = await supabase
+            .from('jobs')
+            .update({
+                status: revertStatusAfterKeepFollowingUp(job.follow_up_count ?? 0),
+                reply_classification: null,
+                reply_message_id: null,
+                reply_match: null,
+            })
+            .eq('id', jobId)
+            .eq('user_id', user.id)
+            .eq('status', 'awaiting_review')
+            .select('id')
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!data) return { success: false, message: 'This application is not awaiting review.' };
+
+        revalidateApplicationPaths(jobId);
+        return { success: true, data: null };
+    } catch (error) {
+        return failure(error, 'This application could not be updated');
     }
 }
 

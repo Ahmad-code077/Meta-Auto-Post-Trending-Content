@@ -14,7 +14,7 @@ const MAX_PAGE = 100_000;
 const AWAITING = ['sent', 'follow_up_1', 'follow_up_2'];
 
 export const STATUS_FILTERS = [
-    'all', 'new', 'draft', 'sent', 'waiting', 'replied', 'scheduled', 'failed', 'cancelled', 'closed',
+    'all', 'new', 'draft', 'sent', 'waiting', 'review', 'replied', 'scheduled', 'failed', 'cancelled', 'closed',
 ] as const;
 export type StatusFilter = (typeof STATUS_FILTERS)[number];
 
@@ -57,6 +57,7 @@ export const STATUS_DEFINITIONS: Record<StatusFilter, StatusDefinition> = {
     draft: { label: 'Draft', jobStatuses: ['draft_created'] },
     sent: { label: 'Sent', sent: true },
     waiting: { label: 'Waiting for reply', jobStatuses: AWAITING },
+    review: { label: 'Reply pending review', jobStatuses: ['awaiting_review'] },
     replied: { label: 'Replied', jobStatuses: ['replied'] },
     scheduled: { label: 'Follow-up scheduled', followUpState: 'scheduled' },
     failed: { label: 'Follow-up failed', followUpState: 'failed' },

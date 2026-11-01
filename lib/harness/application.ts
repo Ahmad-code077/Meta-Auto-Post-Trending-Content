@@ -84,7 +84,7 @@ export async function createApplicationDraft(
 ): Promise<ApplicationEmail> {
     const job = await getOwnedJob(supabase, userId, jobId);
 
-    if (CLOSED_STATUSES.includes(job.status) || job.status === 'sent' || job.status.startsWith('follow_up')) {
+    if (CLOSED_STATUSES.includes(job.status) || job.status === 'sent' || job.status === 'awaiting_review' || job.status.startsWith('follow_up')) {
         throw new HarnessError('This application has already been sent');
     }
 

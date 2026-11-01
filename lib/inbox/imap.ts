@@ -1,10 +1,13 @@
-// IMAP provider for the inbox sync. Read-only: it searches the inbox and fetches headers with BODY.PEEK,
-// so messages are not marked as read and no body is downloaded.
+// IMAP provider for the inbox sync. Read-only: the bulk scan (listRecent) fetches only headers with
+// BODY.PEEK, so messages are not marked as read and no body is downloaded. fetchBody downloads one
+// message's body, also via BODY.PEEK, and only for a message that already matched a sent
+// application -- see lib/inbox/sync.ts and lib/inbox/classify-reply.ts for what that body is used for.
 //
 // Settings (IMAP_*) fall back to the SMTP account, which for Gmail is the same mailbox with an app password.
 
 import { ImapFlow, type FetchMessageObject } from 'imapflow';
 import { addressOf, parseHeaderBlock } from './headers';
+import { extractReplyText } from './body';
 import { readSmtpSettings, resolveSender } from '@/lib/mail/smtp';
 import { logger, errorFields } from '@/lib/log/logger';
 import type { InboxProvider } from './sync';
@@ -70,6 +73,40 @@ export function createImapInboxProvider(settings: ImapSettings): InboxProvider {
                 await client.logout();
             }
         },
+
+        // Called only for a message that already matched a sent application. Fetches the full
+        // source with BODY.PEEK (imapflow always uses PEEK for source/bodyParts fetches, the same
+        // guarantee listRecent relies on -- this does not mark the message as read) and decodes it.
+        // Returns null on any failure: a missing body is never treated as a reason to act.
+        async fetchBody(uid: number) {
+            const client = new ImapFlow({
+                host: settings.host,
+                port: settings.port,
+                secure: true,
+                auth: { user: settings.user, pass: settings.pass },
+                logger: false,
+            });
+
+            try {
+                await client.connect();
+            } catch (error) {
+                logger.error('inbox.imap.connect_failed', { host: settings.host, port: settings.port, ...errorFields(error) });
+                return null;
+            }
+
+            const lock = await client.getMailboxLock('INBOX');
+            try {
+                const msg = await client.fetchOne(String(uid), { uid: true, source: true }, { uid: true });
+                if (!msg || !msg.source) return null;
+                return await extractReplyText(msg.source);
+            } catch (error) {
+                logger.error('inbox.imap.fetch_body_failed', { uid, ...errorFields(error) });
+                return null;
+            } finally {
+                lock.release();
+                await client.logout();
+            }
+        },
     };
 }
 
@@ -82,6 +119,7 @@ function toInbound(msg: FetchMessageObject): InboundMessage {
     const noReply = /mailer-daemon|postmaster|no-?reply/i.test(fromAddress ?? '');
 
     return {
+        uid: msg.uid,
         messageId: msg.envelope?.messageId ?? null,
         inReplyTo: headers['in-reply-to'] ?? null,
         references: headers['references'] ?? null,

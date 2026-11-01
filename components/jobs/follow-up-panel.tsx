@@ -4,6 +4,7 @@ import { useState, useTransition, type FormEvent } from 'react'
 import { format } from 'date-fns'
 import { CalendarClock, Loader2 } from 'lucide-react'
 import { cancelFollowUp, rescheduleFollowUp, retryFollowUp } from '@/app/actions/followups'
+import { keepFollowingUp, markJobReplied } from '@/app/actions/applications'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,8 +13,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useToast } from '@/hooks/use-toast'
+import { gmailReplyLink } from '@/lib/inbox/gmail-link'
 import { isSafeToRetry } from '@/lib/followups/manage'
-import { awaitingReply } from '@/lib/followups/policy'
+import { awaitingReply, REPLY_REVIEW_GRACE_DAYS } from '@/lib/followups/policy'
 import { followUpTimeZone, sendWindowLabel } from '@/lib/followups/schedule'
 import { cancellationReason, failureReason } from '@/lib/followups/messages'
 import { STATUS_BADGE } from './job-meta'
@@ -33,9 +35,35 @@ interface FollowUpPanelProps {
     jobId: string
     jobStatus: string
     followUps: FollowUpView[]
+    // Set once a reply is classified -- including holding/auto_reply, which do not change jobStatus.
+    replyClassification: string | null
+    // Set alongside replyClassification. Used only to build a Gmail link -- never shown as text.
+    replyMessageId: string | null
 }
 
-export function FollowUpPanel({ jobId, jobStatus, followUps }: FollowUpPanelProps) {
+const CLASSIFICATION_LABEL: Record<string, string> = {
+    engaged: 'engaged',
+    holding: 'holding',
+    rejected: 'rejected',
+    auto_reply: 'an automated acknowledgment',
+}
+
+// holding/auto_reply note. awaiting_review has its own, richer block (AwaitingReviewActions) --
+// this never renders for that status, since "follow-ups continue" would be misleading there
+// (the follow-up is gated by job status, not actually running, until the review is resolved).
+function ClassificationNote({ jobStatus, replyClassification }: { jobStatus: string; replyClassification: string | null }) {
+    if (!replyClassification || jobStatus === 'awaiting_review') return null
+    const label = CLASSIFICATION_LABEL[replyClassification] ?? replyClassification
+    const stopped = jobStatus === 'replied'
+    return (
+        <p className="text-sm text-muted-foreground">
+            Recruiter reply classified as <span className="font-medium text-foreground">{label}</span> --{' '}
+            {stopped ? 'follow-ups stopped.' : 'follow-ups continue.'}
+        </p>
+    )
+}
+
+export function FollowUpPanel({ jobId, jobStatus, followUps, replyClassification, replyMessageId }: FollowUpPanelProps) {
     return (
         <Card>
             <CardHeader>
@@ -45,6 +73,15 @@ export function FollowUpPanel({ jobId, jobStatus, followUps }: FollowUpPanelProp
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+                <ClassificationNote jobStatus={jobStatus} replyClassification={replyClassification} />
+                {jobStatus === 'awaiting_review' && replyClassification && (
+                    <AwaitingReviewActions
+                        jobId={jobId}
+                        classification={replyClassification}
+                        replyMessageId={replyMessageId}
+                        pendingFollowUp={followUps.find((f) => f.status === 'scheduled') ?? null}
+                    />
+                )}
                 {followUps.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                         {jobStatus === 'sent'
@@ -58,6 +95,71 @@ export function FollowUpPanel({ jobId, jobStatus, followUps }: FollowUpPanelProp
                 )}
             </CardContent>
         </Card>
+    )
+}
+
+// Shown only while a job is awaiting_review: the classification is a suggestion, not an action
+// already taken. No reply text is shown anywhere here -- only the classification label and a link to
+// read the real thing in Gmail, derived from reply_message_id at render time (nothing is stored).
+function AwaitingReviewActions({
+    jobId,
+    classification,
+    replyMessageId,
+    pendingFollowUp,
+}: {
+    jobId: string
+    classification: string
+    replyMessageId: string | null
+    pendingFollowUp: FollowUpView | null
+}) {
+    const { toast } = useToast()
+    const [isPending, startTransition] = useTransition()
+    const label = CLASSIFICATION_LABEL[classification] ?? classification
+
+    const run = (action: () => Promise<{ success: boolean; message?: string }>, success: string) => {
+        startTransition(async () => {
+            const result = await action()
+            if (result.success) {
+                toast({ title: success })
+            } else {
+                toast({ title: 'Could not update this application', description: result.message, variant: 'destructive' })
+            }
+        })
+    }
+
+    return (
+        <div className="space-y-3 rounded-md border p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-medium text-foreground">Reply received</p>
+                <Badge variant="secondary">Classified as {label}</Badge>
+            </div>
+
+            {replyMessageId && (
+                <a
+                    href={gmailReplyLink(replyMessageId)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm text-primary underline underline-offset-4"
+                >
+                    View reply in Gmail
+                </a>
+            )}
+
+            <p className="text-sm text-muted-foreground">
+                {pendingFollowUp?.dueAt
+                    ? `Auto-confirms on ${format(new Date(Date.parse(pendingFollowUp.dueAt) - REPLY_REVIEW_GRACE_DAYS * 86_400_000), 'PPP')} unless you act.`
+                    : 'No further follow-ups are scheduled -- this will stay pending review until you decide.'}
+            </p>
+
+            <div className="flex flex-wrap gap-2 pt-1">
+                <Button size="sm" disabled={isPending} onClick={() => run(() => markJobReplied(jobId), 'Marked as replied')}>
+                    Mark as replied
+                </Button>
+                <Button variant="outline" size="sm" disabled={isPending} onClick={() => run(() => keepFollowingUp(jobId), 'Follow-ups will continue')}>
+                    Keep following up
+                </Button>
+            </div>
+        </div>
     )
 }
 

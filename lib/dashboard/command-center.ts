@@ -46,6 +46,7 @@ export type NextAction =
     | { kind: 'follow_up_scheduled'; attention: false; followUpNumber: number; dueAt: string }
     | { kind: 'follow_up_sending'; attention: false; followUpNumber: number }
     | { kind: 'waiting_for_reply'; attention: false }
+    | { kind: 'review_reply'; attention: true }
     | { kind: 'replied'; attention: false }
     | { kind: 'none'; attention: false };
 
@@ -89,6 +90,7 @@ export const SECTION_LIMITS = { upcoming: 10, recent: 6, table: 50 } as const;
 
 // Attention order: problems first, then drafts, then new work. Within a kind, the oldest application first.
 const ATTENTION_ORDER: Record<NextAction['kind'], number> = {
+    review_reply: 0,
     check_sent_folder: 0,
     retry_follow_up: 1,
     resend: 2,
@@ -195,9 +197,11 @@ export function buildApplicationCard(job: DashboardJob, emails: DashboardEmail[]
 //   draft_created            -> review the draft; a failed send is resent from the review page
 //   awaiting a reply         -> a processing follow-up is being sent, a scheduled one is waiting, a failed one is
 //                               retried only when retrying is safe, otherwise the sent folder is checked
+//   awaiting_review          -> a reply was classified engaged/rejected; review it (Mark as replied / Keep following up)
 //   replied                  -> nothing: follow-ups have stopped
 //   closed_no_response       -> nothing
 export function deriveNextAction(job: Pick<DashboardJob, 'status'>, emails: DashboardEmail[]): NextAction {
+    if (job.status === 'awaiting_review') return { kind: 'review_reply', attention: true };
     if (job.status === 'replied') return { kind: 'replied', attention: false };
     if (job.status === 'closed_no_response') return { kind: 'none', attention: false };
 
@@ -270,6 +274,7 @@ export function nextActionLabel(action: NextAction): string {
         case 'follow_up_scheduled': return `Follow-up ${action.followUpNumber} scheduled`;
         case 'follow_up_sending': return `Sending follow-up ${action.followUpNumber}`;
         case 'waiting_for_reply': return 'Waiting for reply';
+        case 'review_reply': return 'Review reply';
         case 'replied': return 'Recruiter replied';
         case 'none': return 'No action needed';
     }
