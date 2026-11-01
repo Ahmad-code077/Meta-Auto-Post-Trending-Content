@@ -9,6 +9,7 @@ import { FollowUpPanel, type FollowUpView } from '@/components/jobs/follow-up-pa
 import { ApplicationOverview } from '@/components/jobs/application-overview'
 import { ApplicationTimeline } from '@/components/jobs/application-timeline'
 import { buildApplicationTimeline, followUpSummary, type TimelineEmail } from '@/lib/timeline/build'
+import { followUpTimeZone, sendWindowLabel } from '@/lib/followups/schedule'
 
 export default async function JobReviewPage({ params }: { params: Promise<{ id: string }> }) {
     const { id } = await params
@@ -35,7 +36,7 @@ export default async function JobReviewPage({ params }: { params: Promise<{ id: 
     const rows = emails ?? []
     // The draft panel shows written mail only. Failed or scheduled follow-ups are handled by the follow-up panel.
     const pending = rows.find((e) =>
-        e.status === 'draft' || e.status === 'sending' || (e.status === 'failed' && e.kind === 'application')
+        e.status === 'draft' || e.status === 'sending' || (e.kind === 'application' && (e.status === 'scheduled' || e.status === 'failed'))
     ) ?? null
     const sent = rows.find((e) => e.status === 'sent' && e.kind === 'application') ?? null
 
@@ -88,6 +89,7 @@ export default async function JobReviewPage({ params }: { params: Promise<{ id: 
             body: pending.body ?? '',
             toEmail: pending.to_email,
             error: pending.error,
+            dueAt: pending.due_at,
             edited: Boolean((pending.generation as GenerationRecord | null)?.edited_at),
             evidence: ((pending.generation as GenerationRecord | null)?.evidence ?? []).map((e) => ({
                 id: e.id,
@@ -141,6 +143,7 @@ export default async function JobReviewPage({ params }: { params: Promise<{ id: 
                 draft={draft}
                 sent={sentView}
                 resumeName={resume?.file_name ?? null}
+                sendWindowLabel={sendWindowLabel(followUpTimeZone())}
             />
 
             <FollowUpPanel jobId={job.id} jobStatus={job.status} followUps={followUps} replyClassification={job.reply_classification} replyMessageId={job.reply_message_id} />

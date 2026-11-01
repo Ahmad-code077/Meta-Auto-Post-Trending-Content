@@ -10,6 +10,7 @@ import { hashJobDescription } from '@/lib/harness/analyze-job';
 import { applyRecruiterEmailLock } from '@/lib/jobs/editable';
 import { revertStatusAfterKeepFollowingUp } from '@/lib/jobs/reply-review';
 import { sendApplicationEmail } from '@/lib/mail/send';
+import { followUpTimeZone, jitteredSendSlot } from '@/lib/followups/schedule';
 import type { ActionResult } from '@/lib/types/actions';
 import type { ApplicationEmail } from '@/lib/types/applications';
 import type { Job } from '@/lib/types/jobs';
@@ -176,7 +177,10 @@ export async function generateFollowUpDraft(jobId: string): Promise<ActionResult
 }
 
 // Sends the newest unsent draft for a job: the application, or a follow-up if one is waiting.
-export async function sendJobEmail(jobId: string): Promise<ActionResult<{ emailId: string }>> {
+export async function sendJobEmail(
+    jobId: string,
+    when: 'now' | 'window' = 'now'
+): Promise<ActionResult<{ emailId: string }>> {
     try {
         const { supabase, user } = await requireUser();
 
@@ -193,11 +197,55 @@ export async function sendJobEmail(jobId: string): Promise<ActionResult<{ emailI
         if (error) throw error;
         if (!draft) return { success: false, message: 'There is no draft to send for this job' };
 
+        if (when === 'window') {
+            const dueAt = jitteredSendSlot(new Date(), followUpTimeZone());
+            const { data: scheduled, error: scheduleError } = await supabase
+                .from('application_emails')
+                .update({ status: 'scheduled', due_at: dueAt.toISOString(), error: null, updated_at: new Date().toISOString() })
+                .eq('id', draft.id)
+                .eq('user_id', user.id)
+                .in('status', ['draft', 'failed'])
+                .select('id')
+                .maybeSingle();
+
+            if (scheduleError) throw scheduleError;
+            if (!scheduled) return { success: false, message: 'This email is already being sent or was sent' };
+
+            revalidateApplicationPaths(jobId);
+            return { success: true, data: { emailId: scheduled.id } };
+        }
+
         const sent = await sendApplicationEmail(supabase, user.id, draft.id);
         revalidateApplicationPaths(jobId);
         return { success: true, data: { emailId: sent.id } };
     } catch (error) {
         return failure(error, 'The email could not be sent');
+    }
+}
+
+// Reverts a window-scheduled application send back to a plain draft, so the user is never stuck
+// waiting for a window they changed their mind about.
+export async function cancelScheduledSend(jobId: string): Promise<ActionResult<null>> {
+    try {
+        const { supabase, user } = await requireUser();
+
+        const { data, error } = await supabase
+            .from('application_emails')
+            .update({ status: 'draft', due_at: null, updated_at: new Date().toISOString() })
+            .eq('job_id', jobId)
+            .eq('user_id', user.id)
+            .eq('kind', 'application')
+            .eq('status', 'scheduled')
+            .select('id')
+            .maybeSingle();
+
+        if (error) throw error;
+        if (!data) return { success: false, message: 'There is no scheduled send for this job' };
+
+        revalidateApplicationPaths(jobId);
+        return { success: true, data: null };
+    } catch (error) {
+        return failure(error, 'The scheduled send could not be cancelled');
     }
 }
 

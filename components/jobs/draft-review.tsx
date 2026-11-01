@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { format } from 'date-fns'
 import { AlertCircle, Loader2, Mail, RotateCcw, Send } from 'lucide-react'
-import { generateApplicationDraft, sendJobEmail, updateApplicationDraft } from '@/app/actions/applications'
+import { cancelScheduledSend, generateApplicationDraft, sendJobEmail, updateApplicationDraft } from '@/app/actions/applications'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -23,11 +23,12 @@ import { STATUS_CONFIG } from './job-meta'
 export interface DraftView {
     id: string
     kind: 'application' | 'follow_up'
-    status: 'draft' | 'sending' | 'failed'
+    status: 'draft' | 'sending' | 'failed' | 'scheduled'
     subject: string
     body: string
     toEmail: string
     error: string | null
+    dueAt: string | null
     edited: boolean
     evidence: { id: string; sourceName: string; text: string }[]
 }
@@ -51,11 +52,12 @@ interface DraftReviewProps {
     draft: DraftView | null
     sent: SentView | null
     resumeName: string | null
+    sendWindowLabel: string
 }
 
 // Review step for an application. The draft is editable until it is sent.
 // Sending is never optimistic: the UI waits for SMTP to accept the message.
-export function DraftReview({ job, draft, sent, resumeName }: DraftReviewProps) {
+export function DraftReview({ job, draft, sent, resumeName, sendWindowLabel }: DraftReviewProps) {
     const router = useRouter()
     const { toast } = useToast()
 
@@ -66,13 +68,16 @@ export function DraftReview({ job, draft, sent, resumeName }: DraftReviewProps) 
     const [confirmSend, setConfirmSend] = useState(false)
     const [confirmRegenerate, setConfirmRegenerate] = useState(false)
     const [regenerateNote, setRegenerateNote] = useState('')
+    const [sendWhen, setSendWhen] = useState<'now' | 'window'>('now')
     const [isSaving, startSaving] = useTransition()
     const [isSending, startSending] = useTransition()
     const [isGenerating, startGenerating] = useTransition()
+    const [isCancellingSend, startCancellingSend] = useTransition()
 
     const dirty = subject !== saved.subject || body !== saved.body
     const recipient = draft?.toEmail ?? job.recruiterEmail ?? null
-    const canSend = Boolean(draft) && !dirty && Boolean(resumeName) && Boolean(recipient) && draft?.status !== 'sending'
+    const locked = draft?.status === 'sending' || draft?.status === 'scheduled'
+    const canSend = Boolean(draft) && !dirty && Boolean(resumeName) && Boolean(recipient) && !locked
 
     const save = () => {
         if (!draft) return
@@ -97,14 +102,30 @@ export function DraftReview({ job, draft, sent, resumeName }: DraftReviewProps) 
     const send = () => {
         setConfirmSend(false)
         startSending(async () => {
-            const result = await sendJobEmail(job.id)
+            const result = await sendJobEmail(job.id, sendWhen)
             if (result.success) {
-                toast({ title: 'Email sent', description: `Delivered to ${recipient}.` })
+                toast(
+                    sendWhen === 'window'
+                        ? { title: 'Send scheduled', description: `It will go out automatically in the next window: ${sendWindowLabel}.` }
+                        : { title: 'Email sent', description: `Delivered to ${recipient}.` }
+                )
                 router.refresh()
             } else {
                 setError(result.message)
-                toast({ title: 'Email not sent', description: result.message, variant: 'destructive' })
+                toast({ title: sendWhen === 'window' ? 'Send not scheduled' : 'Email not sent', description: result.message, variant: 'destructive' })
                 router.refresh()
+            }
+        })
+    }
+
+    const cancelSend = () => {
+        startCancellingSend(async () => {
+            const result = await cancelScheduledSend(job.id)
+            if (result.success) {
+                toast({ title: 'Scheduled send cancelled', description: 'The draft is editable again.' })
+                router.refresh()
+            } else {
+                toast({ title: 'Could not cancel', description: result.message, variant: 'destructive' })
             }
         })
     }
@@ -208,7 +229,7 @@ export function DraftReview({ job, draft, sent, resumeName }: DraftReviewProps) 
                                     value={subject}
                                     onChange={(e) => setSubject(e.target.value)}
                                     maxLength={120}
-                                    disabled={draft.status === 'sending' || isSaving}
+                                    disabled={locked || isSaving}
                                 />
                             </div>
                             <div className="space-y-2">
@@ -220,7 +241,7 @@ export function DraftReview({ job, draft, sent, resumeName }: DraftReviewProps) 
                                     rows={16}
                                     maxLength={8000}
                                     className="leading-relaxed"
-                                    disabled={draft.status === 'sending' || isSaving}
+                                    disabled={locked || isSaving}
                                 />
                                 <p className="text-xs text-muted-foreground">{body.trim().split(/\s+/).filter(Boolean).length} words</p>
                             </div>
@@ -231,7 +252,7 @@ export function DraftReview({ job, draft, sent, resumeName }: DraftReviewProps) 
                                         <RotateCcw />
                                         Revert
                                     </Button>
-                                    <Button variant="outline" size="sm" onClick={() => setConfirmRegenerate(true)} disabled={isGenerating || draft.status === 'sending'}>
+                                    <Button variant="outline" size="sm" onClick={() => setConfirmRegenerate(true)} disabled={isGenerating || locked}>
                                         {isGenerating && <Loader2 className="animate-spin" />}
                                         Regenerate
                                     </Button>
@@ -269,12 +290,63 @@ export function DraftReview({ job, draft, sent, resumeName }: DraftReviewProps) 
                                     </div>
                                 </dl>
 
-                                {sendBlocker && <p className="text-xs text-muted-foreground">{sendBlocker}</p>}
+                                {draft.status === 'scheduled' ? (
+                                    <>
+                                        <p className="text-sm text-foreground">
+                                            Scheduled to send around {draft.dueAt ? format(new Date(draft.dueAt), 'PPP p') : 'the next window'}.
+                                        </p>
+                                        <Button
+                                            variant="outline"
+                                            className="w-full"
+                                            onClick={cancelSend}
+                                            disabled={isCancellingSend}
+                                        >
+                                            {isCancellingSend && <Loader2 className="animate-spin" />}
+                                            Cancel, keep as draft
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <>
+                                        {draft.kind === 'application' && (
+                                            <div className="flex gap-2 text-sm">
+                                                <Button
+                                                    type="button"
+                                                    variant={sendWhen === 'now' ? 'default' : 'outline'}
+                                                    size="sm"
+                                                    className="flex-1"
+                                                    onClick={() => setSendWhen('now')}
+                                                    disabled={isSending}
+                                                >
+                                                    Send now
+                                                </Button>
+                                                <Button
+                                                    type="button"
+                                                    variant={sendWhen === 'window' ? 'default' : 'outline'}
+                                                    size="sm"
+                                                    className="flex-1"
+                                                    onClick={() => setSendWhen('window')}
+                                                    disabled={isSending}
+                                                >
+                                                    Send in next window
+                                                </Button>
+                                            </div>
+                                        )}
+                                        {draft.kind === 'application' && sendWhen === 'window' && (
+                                            <p className="text-xs text-muted-foreground">Next window: {sendWindowLabel}.</p>
+                                        )}
 
-                                <Button className="w-full" onClick={() => setConfirmSend(true)} disabled={!canSend || isSending}>
-                                    {isSending ? <Loader2 className="animate-spin" /> : <Send />}
-                                    {isSending ? 'Sending' : 'Send application'}
-                                </Button>
+                                        {sendBlocker && <p className="text-xs text-muted-foreground">{sendBlocker}</p>}
+
+                                        <Button className="w-full" onClick={() => setConfirmSend(true)} disabled={!canSend || isSending}>
+                                            {isSending ? <Loader2 className="animate-spin" /> : <Send />}
+                                            {isSending
+                                                ? (draft.kind === 'application' && sendWhen === 'window' ? 'Scheduling' : 'Sending')
+                                                : draft.kind === 'application'
+                                                    ? (sendWhen === 'window' ? 'Schedule send' : 'Send application')
+                                                    : 'Send follow-up'}
+                                        </Button>
+                                    </>
+                                )}
                             </CardContent>
                         </Card>
 
@@ -308,9 +380,13 @@ export function DraftReview({ job, draft, sent, resumeName }: DraftReviewProps) 
             <ConfirmDialog
                 open={confirmSend}
                 onOpenChange={setConfirmSend}
-                title="Send this application?"
-                description={`It will be sent to ${recipient} with ${resumeName}. Once SMTP accepts it, it cannot be recalled from here.`}
-                confirmLabel="Send"
+                title={draft?.kind === 'application' && sendWhen === 'window' ? 'Schedule this application?' : 'Send this application?'}
+                description={
+                    draft?.kind === 'application' && sendWhen === 'window'
+                        ? `It will be queued and sent automatically to ${recipient} with ${resumeName}, in the next window: ${sendWindowLabel}. You can cancel it before then.`
+                        : `It will be sent to ${recipient} with ${resumeName}. Once SMTP accepts it, it cannot be recalled from here.`
+                }
+                confirmLabel={draft?.kind === 'application' && sendWhen === 'window' ? 'Schedule' : 'Send'}
                 onConfirm={send}
             />
 
