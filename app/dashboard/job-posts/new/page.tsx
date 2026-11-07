@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useCallback, useState, useTransition } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { useToast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
+import { ImageOcrQueue } from '@/components/jobs/image-ocr-queue'
 
 const MIN_LENGTH = 50
 const MAX_LENGTH = 5000
@@ -35,13 +36,20 @@ export default function NewApplicationPage() {
     const [isPending, startTransition] = useTransition()
     const [duplicate, setDuplicate] = useState<{ jobId: string; title: string | null; company: string | null } | null>(null)
 
-    const { control, handleSubmit, reset, register, getValues, formState: { errors } } = useForm<FormValues>({
+    const { control, handleSubmit, reset, register, getValues, setValue, formState: { errors } } = useForm<FormValues>({
         resolver: zodResolver(formSchema),
         defaultValues: { jobDescription: '' },
     })
 
     const description = useWatch({ control, name: 'jobDescription', defaultValue: '' })
     const remaining = MIN_LENGTH - description.trim().length
+
+    // Stable identity: setValue itself never changes across renders, so this never causes the
+    // queue's sync effect (which depends on this callback) to re-fire on every parent render.
+    const handleImageText = useCallback(
+        (text: string) => setValue('jobDescription', text, { shouldValidate: true, shouldDirty: true }),
+        [setValue]
+    )
 
     const finish = (result: Awaited<ReturnType<typeof createApplicationFromJobDescription>>) => {
         if (!result.success) {
@@ -108,6 +116,7 @@ export default function NewApplicationPage() {
                                 </AlertDescription>
                             </Alert>
                         )}
+                        <ImageOcrQueue onTextChange={handleImageText} />
                         <div className="flex items-center justify-between">
                             <Label htmlFor="jobDescription">Job posting</Label>
                             <span className={cn('text-xs tabular-nums', remaining > 0 ? 'text-amber-600 dark:text-amber-500' : 'text-muted-foreground')}>
