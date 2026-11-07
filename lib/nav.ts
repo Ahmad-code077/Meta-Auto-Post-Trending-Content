@@ -1,4 +1,4 @@
-import { Briefcase, FileText, LayoutDashboard, ListChecks, Plus, UserRound, type LucideIcon } from 'lucide-react'
+import { Briefcase, FileText, Lightbulb, LayoutDashboard, ListChecks, Plus, UserRound, type LucideIcon } from 'lucide-react'
 
 // Single source of truth for the dashboard navigation.
 // The sidebar and the header title both read from here.
@@ -35,6 +35,12 @@ export const NAV_SECTIONS: NavSection[] = [
             { label: 'Applications', href: '/dashboard/job-posts', icon: Briefcase },
             { label: 'New application', href: '/dashboard/job-posts/new', icon: Plus },
             { label: 'Gap skills', href: '/dashboard/gap-skills', icon: ListChecks },
+        ],
+    },
+    {
+        title: 'LinkedIn',
+        items: [
+            { label: 'Post ideas', href: '/dashboard/linkedin-ideas', icon: Lightbulb },
         ],
     },
 ]
